@@ -6,8 +6,8 @@ import os
 # ----------------------------
 # Load embeddings
 # ----------------------------
-embeddings = np.load("results/embeddings/val_embeddings.npy")
-labels = np.load("results/embeddings/val_labels.npy")
+embeddings = np.load("../results/embeddings/val_embeddings.npy")
+labels = np.load("../results/embeddings/val_labels.npy")
 
 print("Loaded embeddings:", embeddings.shape)
 
@@ -49,6 +49,6 @@ plt.legend()
 plt.title("t-SNE of CNN Embeddings (Validation Set)")
 plt.tight_layout()
 
-os.makedirs("results/figures", exist_ok=True)
-plt.savefig("results/figures/embedding_tsne.png", dpi=300)
+os.makedirs("../results/figures", exist_ok=True)
+plt.savefig("../results/figures/embedding_tsne.png", dpi=300)
 plt.show()

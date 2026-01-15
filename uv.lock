@@ -831,7 +831,7 @@ wheels = [
 [[package]]
 name = "measurement-free-quantum-classifier"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "gdown" },
     { name = "h5py" },

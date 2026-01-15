@@ -2,3 +2,5 @@ dataset*
 results*
 
 __pycache__
+
+measurement_free_quantum_classifier.egg-info
