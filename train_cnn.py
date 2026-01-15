@@ -115,8 +115,16 @@ def main():
     model = PCamCNN(embedding_dim=EMBEDDING_DIM).to(DEVICE)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR ,weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=2
+    )
 
+    patience = 5
+    epochs_no_improve = 0
     best_val_acc = 0.0
 
     history = {
@@ -136,7 +144,7 @@ def main():
         val_loss, val_acc = evaluate(
             model, val_loader, criterion
         )
-
+        scheduler.step(val_acc)
         print(
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} "
             f"|| Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
@@ -153,6 +161,13 @@ def main():
             save_path = os.path.join(SAVE_DIR, "pcam_cnn_best.pt")
             torch.save(model.state_dict(), save_path)
             print(f"✅ Saved best model to {save_path}")
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+
+        if epochs_no_improve >= patience:
+            print(f"⏹️ Early stopping triggered at epoch {epoch}")
+            break
 
     print(f"\n🏁 Training complete. Best Val Acc: {best_val_acc:.4f}")
 
