@@ -1,0 +1,542 @@
+Measurement-Free Quantum Classifier for
+Medical Image Classification
+A hybrid quantum-classical architecture for detecting metastatic tissue in lymph node histopathology using PatchCamelyon
+dataset.
+
+Team
+
+Guide
+
+Duration
+
+Pranesh S (113222031096),
+Srivaishnav S (113222031143),
+Tarakeshwaran S (113222031159)
+
+Dr. S. Gunasundari,
+
+20 weeks | Active
+
+Professor
+
+Research
+QUANTUM COMPUTING
+
+Department of Computer Science and Engineering
+
+MEDICAL AI
+
+1
+
+The Challenge
+Current Limitations
+Deep learning achieves high accuracy but requires massive computational resources and millions of
+parameters, creating barriers for resource-constrained clinical settings.
+
+Core Technology
+SWAP-test based distance classifier computing fidelity between test images and learned class
+prototypes through quantum interference.
+
+Our Innovation
+A truly measurement-free quantum classifier preserving quantum coherence throughout
+classification, avoiding wavefunction collapse that limits conventional quantum ML approaches.
+
+327K
+
+96×96
+
+2
+
+Image Patches
+
+Resolution
+
+Classes
+
+PatchCamelyon dataset size
+
+Pixel dimensions per patch
+
+Binary classification task
+
+Department of Computer Science and Engineering
+
+2
+
+Literature Foundation
+Recent publications establish the research landscape and identify critical gaps in measurement-free quantum approaches for medical imaging.
+1. Radhi, E.A., et al. (2025)
+
+Systematic review identifying that measurement-free methods are a critical research gap, offering theoretical advantages over standard VQA
+but lacking empirical exploration.
+2. Int. J. for Future Innovations (2025)
+Evaluates encoding standards like FRQI and NEQR, concluding that hybrid architectures are the only viable path to overcome current NISQ
+
+hardware constraints.
+3. Am. J. Botany & Bioengineering (2025)
+Validates the superior parameter efficiency of quantum models across imaging modalities, supporting the move toward lightweight quantum
+classifiers.
+4. Open Medscience (2025)
+Connects quantum algorithmic efficiency to practical clinical deployment, emphasizing the need for models that can run on resourceconstrained edge devices.
+
+Department of Computer Science and Engineering
+
+3
+
+Literature Foundation
+5. Medical Sciences (MDPI, 2024)
+Provides the theoretical basis for quantum noise resilience, supporting our hypothesis that measurement-free designs can naturally suppress
+
+image noise.
+6. Springer Professional (2024)
+Details NISQ-era limitations (decoherence/error rates), validating our design choice to limit circuit depth to 50-100 gates.
+7. Springer Nature (2023)
+Establishes the framework for hybrid quantum-classical optimization, which is the core architectural approach used in this project.
+8. Neurocomputing (2023)
+Sets the empirical baseline, documenting current state-of-the-art accuracies for standard quantum classifiers in tumor detection tasks.
+9. IET Quantum Communication (2022)
+Foundational text on quantum image processing that justifies the trade-offs involved in selecting amplitude encoding for feature
+representation.
+10. Bentham Science (2025)
+Showcases the latest trends in robustness analysis, confirming that stability against noise is a primary metric for evaluating new quantum
+models.
+
+Department of Computer Science and Engineering
+
+4
+
+Literature Foundation
+Summary
+Paper Context
+
+Their Focus
+
+Their Limitation
+
+Our Solution
+
+Reviews (1, 8)
+
+Surveying trends
+
+Identifies gaps but doesn't fill them
+
+We implement the "Measurement-Free" gap
+
+Encoding (2, 9)
+
+Raw pixel encoding
+
+Too many gates/qubits
+
+Hybrid CNN + Amplitude Encoding
+
+Applications (3, 7)
+
+Standard VQC/QSVM
+
+Measurement collapses state
+
+SWAP-test (Coherence preserved)
+
+Deployment (4, 6)
+
+Hardware constraints
+
+Problem identification
+
+Shallow Circuit (<100 gates)
+
+Noise (5, 10)
+
+Pre-processing/Theory
+
+Pre-classification focus
+
+Robustness in Classification
+
+Department of Computer Science and Engineering
+
+5
+
+Key Research Insights
+Measurement-Free Advantage
+SWAP-test protocols preserve quantum advantage by avoiding
+wavefunction collapse that destroys entanglement.
+
+Parameter Efficiency
+
+40-60% parameter reduction vs. classical CNNs while maintaining
+comparable accuracy.
+
+NISQ Feasibility
+
+50-200 gate circuits practical for near-term implementation on
+current quantum hardware.
+
+Noise Resilience: Quantum noise in NISQ devices provides natural
+denoising benefits for medical imaging. Measurement-free approaches
+preserve this advantage throughout the pipeline.
+
+Department of Computer Science and Engineering
+
+6
+
+Technical Infrastructure
+Quantum Platform
+
+Deep Learning Stack
+
+Hardware Requirements
+
+•
+
+Qiskit 0.43+ framework
+
+•
+
+PyTorch 2.0+ for CNN extraction
+
+•
+
+•
+
+Qiskit Aer GPU-accelerated
+
+•
+
+TorchVision pre-trained models
+
+simulator
+
+•
+
+Adam optimizer with parameter-shift
+
+•
+
+Intel i9 or AMD Ryzen 9 CPU
+
+rule
+
+•
+
+32GB RAM minimum (64GB
+
+•
+
+IBM Quantum 27-qubit
+Hummingbird
+
+•
+
+•
+
+VRAM)
+
+recommended)
+
+Binary cross-entropy loss
+•
+
+NISQ-realistic noise models
+
+NVIDIA RTX 4070 GPU (8GB+
+
+500GB SSD storage
+
+Cost-Effective: Total estimated cost Rs.0-5000 using free cloud services and institutional GPUs. All frameworks are open-source.
+
+Department of Computer Science and Engineering
+
+7
+
+System Architecture
+Classical Feature Extraction
+Lightweight CNN (3-4 conv layers) extracts 16-32D feature vectors
+from 96×96 RGB histopathology patches.
+
+Amplitude Encoding
+Features normalized to [0,1] and encoded into quantum states using 45 qubits, preserving relationships through superposition.
+
+SWAP-Test Classification
+Quantum fidelity computed between test state and learned
+benign/malignant prototypes through quantum interference.
+
+Single Measurement
+Only ancilla qubit measured at end. Probability encodes fidelity,
+enabling binary classification decision.
+
+Department of Computer Science and Engineering
+
+8
+
+Core Innovation: SWAP-Test Protocol
+Why Measurement-Free?
+Coherence Preservation
+
+Fidelity-Based Decision
+
+Quantum states never
+collapsed until final readout,
+maintaining entanglement
+throughout.
+
+The SWAP-test computes quantum overlap
+between test image and class prototypes:
+
+Noise Resilience
+Fewer measurement points
+reduce error accumulation on
+NISQ hardware.
+
+Quantum Advantage
+
+Classification Logic:
+If Fidelity_benign > Fidelity_malignant:
+Predict: BENIGN (0)
+Else:
+Predict: MALIGNANT (1)
+
+Preserves superposition and
+interference effects that
+enhance classification.
+
+Department of Computer Science and Engineering
+
+9
+
+Project Timeline
+Weeks 1-3
+Data Preparation
+Download PatchCamelyon, implement classical CNN baseline
+achieving ≥95% accuracy.
+
+Weeks 4-7
+Quantum Circuits
+
+Weeks 8-12
+
+Design SWAP-test circuit, validate amplitude encoding, prototype
+on toy dataset.
+
+Hybrid Training
+Train CNN + quantum classifier jointly, optimize prototypes,
+achieve ≥92% accuracy.
+
+Weeks 13-16
+Validation
+
+Weeks 17-20
+
+Compare measurement-free vs. measurement-based, conduct
+ablation studies, robustness analysis.
+
+Publication
+Document methodology, create visualizations, prepare manuscript,
+submit to arXiv.
+
+Department of Computer Science and Engineering
+
+10
+
+Experimental Design
+Dataset & Metrics
+
+95%
+
+92%
+
+PatchCamelyon Split:
+
+Classical Baseline
+
+Quantum Target
+
+•
+
+60% training (196,000 images)
+
+Target accuracy for CNN
+
+Hybrid model goal
+
+•
+
+20% validation (65,000 images)
+
+•
+
+20% test (65,000 images)
+
+5%
+
+Evaluation Metrics:
+
+Noise Advantage
+
+•
+
+Accuracy, Sensitivity, Specificity
+
+•
+
+Robustness improvement
+
+Precision, F1-Score, AUC-ROC
+
+•
+
+Confusion matrices per class
+
+Ablation Studies
+
+Circuit Depth
+
+Feature Size
+
+Noise Sensitivity
+
+Cross-Validation
+
+Test 30, 50, 75, 100, 150 gates
+
+Test 8D, 16D, 24D, 32D encodings
+
+Add Gaussian noise, measure
+degradation
+
+5-fold stratified splits
+
+Department of Computer Science and Engineering
+
+11
+
+Risk Mitigation
+If Accuracy Targets Not Met
+•
+
+Increase CNN capacity (add convolutional layers)
+
+•
+
+Try alternative encodings (angle encoding)
+
+•
+
+Increase circuit depth to 150-200 gates if noise allows
+
+•
+
+Reduce feature dimensionality for compact representations
+
+If Quantum Hardware Access Delayed
+•
+
+Continue with Qiskit Aer simulator (sufficient for validation)
+
+•
+
+Implement realistic noise models matching IBM Hummingbird specs
+
+•
+
+Plan hardware validation for future work
+
+If NISQ Noise Degrades Performance
+•
+
+Use error mitigation (zero-noise extrapolation, dynamical decoupling)
+
+•
+
+Reduce circuit depth (prioritize robustness over expressivity)
+
+•
+
+Shift emphasis to noise-robustness improvements
+
+If Training Convergence Slow
+•
+
+Implement learning rate scheduling (warm-up, exponential decay)
+
+•
+
+Use mini-batch gradient accumulation
+
+•
+
+Try alternative optimizers (RMSprop, SGD with momentum)
+
+Department of Computer Science and Engineering
+
+12
+
+REFERENCES
+1. Radhi, E.A., et al. (2025). "Quantum Machine and Deep Learning for Medical Image Classification: A Systematic Review of Trends,
+Methodologies, and Future Directions." Iraqi Journal for Computer Science and Mathematics, 6(2), Article 9.
+2. International Journal for Future Innovations in Engineering, Science and Technology (2025). "Quantum Computing in Medical Imaging." DOI:
+10.59367/dyevtr46.
+3. American Journal of Botany and Bioengineering (2025). "Application of Quantum Computing in Medical Imaging."
+4. Open Medscience (2025). "Quantum Computing Refines Medical Imaging Solutions."
+5. Medical Sciences (MDPI) (2024). "Quantum Computing in Medicine." Vol. 12, Article 67. DOI: 10.3390/medsci12040067. PMID: PMC11586987.
+
+6. Springer Professional (2024). "Quantum Computing: Applications and Challenges."
+7. Springer Nature (2023). "The Future of Drug Development with Quantum Computing." In Quantum Computing Applications, pp. 187-204.
+8. Neurocomputing (2023). "Quantum machine learning in medical image analysis: A survey." Vol. 520(1), pp. 1-18.
+
+9. IET Digital Library (2022). "Quantum medical images processing: foundations and applications." IET Quantum Communication, 2(1).
+10. Bentham Science (2025). Special Issue: "Quantum AI in Medical Image Analysis."
+
+Department of Computer Science and Engineering
+
+13
+
+APPENDIX: KEY TERMINOLOGY
+Term
+
+Definition
+
+Amplitude Encoding
+
+Encoding classical data as amplitudes of quantum state
+
+Measurement-Free
+
+Quantum protocol that avoids collapsing quantum states until final
+readout
+
+SWAP-Test
+
+Quantum circuit computing fidelity between two quantum states
+
+PatchCamelyon
+
+Dataset of 96×96 histopathology patches from lymph node tissue
+
+Fidelity
+
+Quantum measure of similarity between two quantum states
+
+VQA
+
+Variational Quantum Algorithm with parameterized circuits
+
+NISQ
+
+Noisy Intermediate-Scale Quantum (current hardware era)
+
+Parameter-Shift Rule
+
+Method for computing quantum circuit gradients classically
+
+Amplitude Encoding
+
+Encoding classical vector as quantum state amplitudes
+
+Department of Computer Science and Engineering
+
+14
+
+
