@@ -9,7 +9,7 @@ BASE_ROOT = '/home/tarakesh/Work/Repo/measurement-free-quantum-classifier'
 # Load embeddings
 # ----------------------------
 embeddings = np.load(os.path.join(BASE_ROOT, "results/embeddings/val_embeddings.npy"))
-labels = np.load("../results/embeddings/val_labels.npy")
+labels = np.load(os.path.join(BASE_ROOT, "results/embeddings/val_labels.npy"))
 
 print("Loaded embeddings:", embeddings.shape)
 
