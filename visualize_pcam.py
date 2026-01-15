@@ -3,9 +3,6 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Add project root to sys.path so 'src' can be found
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from src.data.pcam_loader import get_pcam_dataset
 
 def show_images():
