@@ -18,12 +18,13 @@ torch.backends.cudnn.benchmark = True
 # Configuration (keep simple)
 # ----------------------------
 DATA_ROOT = '/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/dataset'   # CHANGE if needed
+BASE_ROOT = '/home/tarakesh/Work/Repo/measurement-free-quantum-classifier'
 BATCH_SIZE = 64
 EPOCHS = 20
 LR = 1e-3
 EMBEDDING_DIM = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-SAVE_DIR = "results/checkpoints"
+SAVE_DIR = os.path.join(BASE_ROOT, "results/checkpoints")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 
@@ -174,14 +175,14 @@ def main():
     # ----------------------------
     # Save training history
     # ----------------------------
-    os.makedirs("results/logs", exist_ok=True)
-    with open("results/logs/train_history.json", "w") as f:
+    os.makedirs(os.path.join(BASE_ROOT, "results/logs"), exist_ok=True)
+    with open(os.path.join(BASE_ROOT, "results/logs/train_history.json"), "w") as f:
         json.dump(history, f, indent=2)
 
     # ----------------------------
     # Plot curves
     # ----------------------------
-    os.makedirs("results/figures", exist_ok=True)
+    os.makedirs(os.path.join(BASE_ROOT, "results/figures"), exist_ok=True)
     epochs = range(1, len(history["train_loss"]) + 1)
 
     # Loss curve

@@ -3,10 +3,12 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import os   
 
+BASE_ROOT = '/home/tarakesh/Work/Repo/measurement-free-quantum-classifier'
+
 # ----------------------------
 # Load embeddings
 # ----------------------------
-embeddings = np.load("../results/embeddings/val_embeddings.npy")
+embeddings = np.load(os.path.join(BASE_ROOT, "results/embeddings/val_embeddings.npy"))
 labels = np.load("../results/embeddings/val_labels.npy")
 
 print("Loaded embeddings:", embeddings.shape)
@@ -49,6 +51,6 @@ plt.legend()
 plt.title("t-SNE of CNN Embeddings (Validation Set)")
 plt.tight_layout()
 
-os.makedirs("../results/figures", exist_ok=True)
-plt.savefig("../results/figures/embedding_tsne.png", dpi=300)
+os.makedirs(os.path.join(BASE_ROOT, "results/figures"), exist_ok=True)
+plt.savefig(os.path.join(BASE_ROOT, "results/figures/embedding_tsne.png"), dpi=300)
 plt.show()

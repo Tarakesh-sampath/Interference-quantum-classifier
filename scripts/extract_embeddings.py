@@ -12,11 +12,12 @@ from src.data.transforms import get_eval_transforms
 # Config
 # ----------------------------
 DATA_ROOT = '/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/dataset'   # adjust if needed
-CHECKPOINT = "../results/checkpoints/pcam_cnn_best.pt"
+BASE_ROOT = '/home/tarakesh/Work/Repo/measurement-free-quantum-classifier'
+CHECKPOINT = os.path.join(BASE_ROOT, "results/checkpoints/pcam_cnn_best.pt")
 EMBEDDING_DIM = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-SAVE_DIR = "../results/embeddings"
+SAVE_DIR = os.path.join(BASE_ROOT, "results/embeddings")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 MAX_SAMPLES = 5000   # enough for visualization, fast on GTX 1650
