@@ -1,0 +1,8 @@
+base_root: "/home/tarakesh/Work/Repo/measurement-free-quantum-classifier"
+
+paths:
+  dataset: "dataset"
+  checkpoints: "results/checkpoints"
+  embeddings: "results/embeddings"
+  figures: "results/figures"
+  logs: "results/logs"
