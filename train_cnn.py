@@ -119,6 +119,13 @@ def main():
 
     best_val_acc = 0.0
 
+    history = {
+        "train_loss": [],
+        "train_acc": [],
+        "val_loss": [],
+        "val_acc": [],
+    }
+
     for epoch in range(1, EPOCHS + 1):
         print(f"\n📘 Epoch {epoch}/{EPOCHS}")
 
