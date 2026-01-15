@@ -3,6 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+set_seed(42)
 
 _, PATHS = load_paths()
 

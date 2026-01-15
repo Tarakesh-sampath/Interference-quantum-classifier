@@ -8,6 +8,9 @@ from src.classical.cnn import PCamCNN
 from src.data.pcam_loader import get_pcam_dataset
 from src.data.transforms import get_eval_transforms
 from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+set_seed(42)
 
 BASE_ROOT, PATHS = load_paths()
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

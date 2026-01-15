@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 from src.data.pcam_loader import get_pcam_dataset
 from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+set_seed(42)
 
 _, PATHS = load_paths()
 

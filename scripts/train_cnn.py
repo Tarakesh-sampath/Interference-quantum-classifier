@@ -10,8 +10,10 @@ from src.classical.cnn import PCamCNN
 from src.data.pcam_loader import get_pcam_dataset
 from src.data.transforms import get_train_transforms, get_eval_transforms
 from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
-torch.backends.cudnn.benchmark = True
+set_seed(42)
+#torch.backends.cudnn.benchmark = True
 
 # ----------------------------
 # Load paths
@@ -107,6 +109,7 @@ def main():
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), os.path.join(PATHS["checkpoints"], "pcam_cnn_best.pt"))
+            print("✅ Best validation accuracy reached : Saved checkpoint")
             wait = 0
         else:
             wait += 1
@@ -115,6 +118,8 @@ def main():
             print("⏹️ Early stopping")
             break
 
+    torch.save(model.state_dict(), os.path.join(PATHS["checkpoints"], "pcam_cnn_final.pt"))
+    print("✅ Final checkpoint saved")
     # Save logs
     with open(os.path.join(PATHS["logs"], "train_history.json"), "w") as f:
         json.dump(history, f, indent=2)
@@ -126,6 +131,13 @@ def main():
     plt.plot(epochs, history["val_acc"], label="Val")
     plt.legend()
     plt.savefig(os.path.join(PATHS["figures"], "cnn_accuracy.png"))
+    plt.close()
+
+    plt.figure()
+    plt.plot(epochs, history["train_loss"], label="Train")
+    plt.plot(epochs, history["val_loss"], label="Val")
+    plt.legend()
+    plt.savefig(os.path.join(PATHS["figures"], "cnn_loss.png"))
     plt.close()
 
 
