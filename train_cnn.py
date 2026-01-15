@@ -4,10 +4,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import json
+import matplotlib.pyplot as plt
+
+
 from src.classical.cnn import PCamCNN
 from src.data.pcam_loader import get_pcam_dataset
 from src.data.transforms import get_train_transforms, get_eval_transforms
 
+torch.backends.cudnn.benchmark = True
 
 # ----------------------------
 # Configuration (keep simple)
@@ -18,7 +23,6 @@ EPOCHS = 20
 LR = 1e-3
 EMBEDDING_DIM = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
 SAVE_DIR = "results/checkpoints"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -95,7 +99,7 @@ def main():
         train_set,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        num_workers=4,
+        num_workers=6,
         pin_memory=True
     )
 
@@ -103,7 +107,7 @@ def main():
         val_set,
         batch_size=BATCH_SIZE,
         shuffle=False,
-        num_workers=4,
+        num_workers=6,
         pin_memory=True
     )
 
@@ -131,6 +135,11 @@ def main():
             f"|| Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
         )
 
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+
         # Save best model
         if val_acc > best_val_acc:
             best_val_acc = val_acc
@@ -140,6 +149,40 @@ def main():
 
     print(f"\n🏁 Training complete. Best Val Acc: {best_val_acc:.4f}")
 
+    # ----------------------------
+    # Save training history
+    # ----------------------------
+    os.makedirs("results/logs", exist_ok=True)
+    with open("results/logs/train_history.json", "w") as f:
+        json.dump(history, f, indent=2)
+
+    # ----------------------------
+    # Plot curves
+    # ----------------------------
+    os.makedirs("results/figures", exist_ok=True)
+    epochs = range(1, len(history["train_loss"]) + 1)
+
+    # Loss curve
+    plt.figure()
+    plt.plot(epochs, history["train_loss"], label="Train Loss")
+    plt.plot(epochs, history["val_loss"], label="Val Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.title("CNN Training Loss")
+    plt.savefig("results/figures/cnn_loss.png")
+    plt.close()
+
+    # Accuracy curve
+    plt.figure()
+    plt.plot(epochs, history["train_acc"], label="Train Acc")
+    plt.plot(epochs, history["val_acc"], label="Val Acc")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.legend()
+    plt.title("CNN Training Accuracy")
+    plt.savefig("results/figures/cnn_accuracy.png")
+    plt.close()
 
 if __name__ == "__main__":
     main()
