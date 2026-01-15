@@ -1,0 +1,14 @@
+{
+  "LogisticRegression": {
+    "accuracy": 0.9086666666666666,
+    "auc": 0.9706703413940256
+  },
+  "LinearSVM": {
+    "accuracy": 0.912,
+    "auc": null
+  },
+  "kNN": {
+    "accuracy": 0.93,
+    "auc": 0.9725257823613087
+  }
+}
