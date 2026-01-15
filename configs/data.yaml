@@ -1,0 +1,4 @@
+pcam:
+  root: '/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/dataset'
+  image_size: 96
+  num_classes: 2
