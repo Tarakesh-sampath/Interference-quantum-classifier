@@ -1,0 +1,9 @@
+{
+  "embedding_dim": 32,
+  "classes": [
+    0,
+    1
+  ],
+  "normalization": "l2",
+  "source": "mean_of_class_embeddings"
+}

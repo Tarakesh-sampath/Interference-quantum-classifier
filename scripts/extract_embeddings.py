@@ -34,5 +34,5 @@ with torch.no_grad():
         embeds.append(z.cpu().numpy())
         labels.append(y.numpy())
 
-np.save(os.path.join(PATHS["embeddings"], "val_embeddings.npy"), np.vstack(embeds))
-np.save(os.path.join(PATHS["embeddings"], "val_labels.npy"), np.concatenate(labels))
+np.save(os.path.join(PATHS["embeddings"], "val_embeddings.npy"), np.vstack(embeds).astype(np.float64))
+np.save(os.path.join(PATHS["embeddings"], "val_labels.npy"), np.concatenate(labels).astype(np.float64))
