@@ -39,7 +39,7 @@ for cls in np.unique(y):
     #X_cls = X_cls.astype(np.float64)
 
     # Mean in FP64
-    mean_vec = X_cls.mean(axis=0, keepdims=True)
+    mean_vec = X_cls.mean(axis=0)
 
     # Exact FP64 normalization
     norm = np.sqrt(np.sum(mean_vec ** 2))

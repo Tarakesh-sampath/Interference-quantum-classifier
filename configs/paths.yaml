@@ -6,3 +6,7 @@ paths:
   embeddings: "results/embeddings"
   figures: "results/figures"
   logs: "results/logs"
+  class_prototypes: "results/embeddings/class_prototypes"
+
+class_count:
+  K: 3

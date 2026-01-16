@@ -40,6 +40,16 @@ test_embedding = np.load(
 
 test_embedding = test_embedding / np.linalg.norm(test_embedding)
 
+print("test_embedding.shape", test_embedding.shape)
+print("class_state_0.shape", class_state_0.shape)
+print("class_state_1.shape", class_state_1.shape)
+
+# expected class 
+expected_class = np.load(
+    os.path.join(EMBED_DIR, "val_labels.npy")
+)[0].astype(np.float64)
+
+print("expected_class", expected_class)
 # ----------------------------
 # SWAP test function
 # ----------------------------
@@ -73,7 +83,7 @@ def swap_test_fidelity(state_a, state_b, shots=2048):
 
     # Measure ancilla
     qc.measure(anc, 0)
-    qc.draw("mpl",save=True,dir=PATHS["figures"],filename="swap_test_circuit.png")
+    qc.draw("mpl").savefig(os.path.join(PATHS["figures"], "swap_test_circuit.png"))
 
     backend = AerSimulator()
     job = backend.run(qc, shots=shots)

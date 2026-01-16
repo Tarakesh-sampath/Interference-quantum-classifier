@@ -97,11 +97,11 @@ results["LinearSVM"] = {
 # ==================================================
 print("Training k-NN...")
 knn = KNeighborsClassifier(
-    n_neighbors=7,
+    n_neighbors=5,
     metric="euclidean"
 )
 knn.fit(Xtr_l2, ytr)
-
+print("Knn neighbors:", knn.n_neighbors)
 pred_knn = knn.predict(Xte_l2)
 proba_knn = knn.predict_proba(Xte_l2)[:, 1]
 
