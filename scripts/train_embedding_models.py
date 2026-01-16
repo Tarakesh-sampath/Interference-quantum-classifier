@@ -126,3 +126,22 @@ for model, metrics in results.items():
         f"Acc: {metrics['accuracy']:.4f} | "
         f"AUC: {metrics['auc']}"
     )
+
+## output 
+"""
+Built measurement-free-quantum-classifier @ file:///home/tarakesh/Work/Repo/measurement-free-quantum-classifier
+Uninstalled 1 package in 0.77ms
+Installed 1 package in 1ms
+🌱 Global seed set to 42
+Loaded embeddings: (5000, 32)
+
+Training Logistic Regression...
+Training Linear SVM...
+Training k-NN...
+Knn neighbors: 5
+
+=== Embedding Baseline Results ===
+LogisticRegression | Acc: 0.9087 | AUC: 0.9706703413940256
+         LinearSVM | Acc: 0.9120 | AUC: None
+               kNN | Acc: 0.9260 | AUC: 0.9690398293029872
+"""

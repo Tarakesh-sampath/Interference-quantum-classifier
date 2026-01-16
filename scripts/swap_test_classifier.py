@@ -106,3 +106,16 @@ print("Fidelity with class 1 (Malignant):", F1)
 
 predicted_class = 0 if F0 > F1 else 1
 print("\nPredicted class:", predicted_class)
+
+## output
+"""
+🌱 Global seed set to 42
+test_embedding.shape (32,)
+class_state_0.shape (32,)
+class_state_1.shape (32,)
+expected_class 1.0
+Fidelity with class 0 (Benign): 0.6318359375
+Fidelity with class 1 (Malignant): 0.876953125
+
+Predicted class: 1
+"""

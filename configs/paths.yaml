@@ -9,4 +9,4 @@ paths:
   class_prototypes: "results/embeddings/class_prototypes"
 
 class_count:
-  K: 3
+  K: 5
