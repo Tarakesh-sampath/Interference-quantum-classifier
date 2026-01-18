@@ -1,7 +1,7 @@
 import numpy as np
 
 from src.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
-from src.rfc.circuit_b_phase_kickback import run_isdo_circuit_b
+from src.rfc.reflection_classifier import run_isdo_circuit_b
 from src.utils.common import build_chi_state
 
 
