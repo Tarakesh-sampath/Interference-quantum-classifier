@@ -1,7 +1,7 @@
 # Measurement-Free Quantum Similarity Classification on Medical Image Embeddings
 
 **Author:** Tarakeshwaran  
-**Date:** *(set at submission time)*  
+**Date:** *17 jan 2026*  
 
 ---
 
