@@ -1,8 +1,7 @@
 import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Operator, Pauli
-from qiskit.circuit.library import StatePreparation
-
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import StatePreparation, UnitaryGate
 from src.isdo.circuits.common import load_statevector
 
 
@@ -11,8 +10,8 @@ def reflection_operator(chi):
     Build R_chi = I - 2|chi><chi|
     """
     dim = len(chi)
-    proj = 2 * np.outer(chi, chi)
-    return np.eye(dim) - proj
+    proj = np.outer(chi, chi.conj())
+    return np.eye(dim) - 2 * proj
 
 
 def build_isdo_circuit_b(psi, chi):
@@ -33,8 +32,8 @@ def build_isdo_circuit_b(psi, chi):
     qc.h(anc)
 
     # Controlled reflection
-    R = Operator(reflection_operator(chi))
-    qc.append(R.to_instruction().control(1), [anc] + data)
+    R = UnitaryGate(reflection_operator(chi), label="R_chi")
+    qc.append(R.control(1), [anc] + data)
 
     # Interference
     qc.h(anc)
