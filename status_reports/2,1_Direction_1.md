@@ -20,19 +20,17 @@ The objective of **Direction 1** was to design a **quantum classification primit
 
 The target observable was fixed as:
 
-[
+$$
 \boxed{
 \mathcal{O}_{\text{ISDO}}(\psi)
-===============================
-
-\operatorname{Re}\langle \chi \mid \psi \rangle
+= \operatorname{Re}\langle \chi \mid \psi \rangle
 }
-]
+$$
 
 where:
 
-* (|\psi\rangle) is a test embedding
-* (|\chi\rangle) is a class reference superposition
+* $|\psi\rangle$ is a test embedding
+* $|\chi\rangle$ is a class reference superposition
 
 ---
 
@@ -42,22 +40,20 @@ where:
 
 * Defined ISDO using a **Hadamard-test-style interference circuit**
 * Used an **oracle model** with abstract unitaries:
-
-  * (U_\psi |0\rangle = |\psi\rangle)
-  * (U_\chi |0\rangle = |\chi\rangle)
-* Constructed a conceptual circuit that interferes (|\psi\rangle) and (|\chi\rangle)
+  * $U_\psi |0\rangle = |\psi\rangle$
+  * $U_\chi |0\rangle = |\chi\rangle$
+* Constructed a conceptual circuit that interferes $|\psi\rangle$ and $|\chi\rangle$
 
 ### Key result
 
 * Circuit A **correctly defines** the observable:
-  [
+  $$
   \langle Z\rangle = \operatorname{Re}\langle \chi \mid \psi \rangle
-  ]
+  $$
 
 ### Key insight
 
 * Circuit A is **definition-only**:
-
   * pedagogically useful
   * standard in quantum algorithms literature
   * **not physically realizable as-is**
@@ -75,31 +71,27 @@ where:
 ### What was attempted
 
 * Implement ISDO physically using:
-
   * ancilla
   * Hadamard
   * **controlled reflection**
-    [
+    $$
     R_\chi = I - 2|\chi\rangle\langle\chi|
-    ]
+    $$
 
 ### Observed behavior
 
 The circuit consistently measured:
 
-[
+$$
 \boxed{
 \langle Z\rangle
-================
-
-1 - 2|\langle \chi \mid \psi \rangle|^2
+= 1 - 2|\langle \chi \mid \psi \rangle|^2
 }
-]
+$$
 
 ### Key realization
 
 * This observable is:
-
   * **quadratic**
   * **phase-insensitive**
   * equivalent to a **fidelity-based classifier**
@@ -115,7 +107,6 @@ This was confirmed analytically and numerically.
 
 * The circuit was **not wrong**, but **measured a different observable**
 * This method was **renamed** and separated as a new direction:
-
   * **RFC — Reflection-Fidelity Classifier**
 
 ### Status
@@ -129,20 +120,18 @@ This was confirmed analytically and numerically.
 
 Through systematic testing, the following distinction was established:
 
-| Method | Observable                     |              |             |     |
-| ------ | ------------------------------ | ------------ | ----------- | --- |
-| ISDO   | (\operatorname{Re}\langle \chi | \psi\rangle) |             |     |
-| RFC    | (1 - 2                         | \langle \chi | \psi\rangle | ^2) |
+| Method | Observable | Description |
+| :--- | :--- | :--- |
+| **ISDO** | $\operatorname{Re}\langle \chi \mid \psi \rangle$ | Linear Interference |
+| **RFC** | $1 - 2|\langle \chi \mid \psi \rangle|^2$ | Quadratic Fidelity |
 
 ### Empirical observations
 
 * ISDO:
-
   * preserves sign
   * distinguishes directionality
   * outputs 0 for orthogonal states
 * RFC:
-
   * collapses sign
   * outputs +1 for orthogonal states
   * behaves as a distance-like metric
@@ -159,13 +148,13 @@ To physically realize ISDO, the circuit must implement **linear interference**, 
 
 This was achieved by introducing a **transition unitary**:
 
-[
+$$
 \boxed{
 U_{\chi\psi} = U_\chi U_\psi^\dagger
 }
 \quad\text{such that}\quad
 U_{\chi\psi}|\psi\rangle = |\chi\rangle
-]
+$$
 
 ### Circuit structure (ISDO-B′)
 
@@ -179,20 +168,18 @@ Data:    |ψ⟩ ─────Uχψ────
 
 The ancilla measurement yields:
 
-[
+$$
 \boxed{
 \langle Z\rangle = \operatorname{Re}\langle \chi \mid \psi \rangle
 }
-]
+$$
 
 ### Validation
 
 * Verified numerically against:
-
   * analytic inner product
   * Circuit A reference
 * Tested across:
-
   * identical states
   * orthogonal states
   * opposite states
