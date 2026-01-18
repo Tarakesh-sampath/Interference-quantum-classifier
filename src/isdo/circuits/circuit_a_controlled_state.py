@@ -3,7 +3,7 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
 from qiskit.circuit.library import StatePreparation
 
-from src.isdo.circuits.common import load_statevector
+from src.utils.common import load_statevector
 
 
 def build_isdo_circuit_a(psi, chi):

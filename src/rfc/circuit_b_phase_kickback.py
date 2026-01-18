@@ -1,8 +1,10 @@
+# Reflection-Fidelity Classifier
+
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
 from qiskit.circuit.library import StatePreparation, UnitaryGate
-from src.isdo.circuits.common import load_statevector
+from src.utils.common import load_statevector
 
 
 def reflection_operator(chi):
