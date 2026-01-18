@@ -129,9 +129,6 @@ for model, metrics in results.items():
 
 ## output 
 """
-Built measurement-free-quantum-classifier @ file:///home/tarakesh/Work/Repo/measurement-free-quantum-classifier
-Uninstalled 1 package in 0.77ms
-Installed 1 package in 1ms
 🌱 Global seed set to 42
 Loaded embeddings: (5000, 32)
 

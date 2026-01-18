@@ -28,6 +28,13 @@ K = int(PATHS["class_count"]["K"])  # prototypes per class
 X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
 y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
 
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded embeddings:", X_train.shape)
+
 # ----------------------------
 # Helper: quantum-safe normalize
 # ----------------------------
@@ -42,7 +49,7 @@ def to_quantum_state(x):
 # Compute prototypes per class
 # ----------------------------
 for cls in [0, 1]:
-    X_cls = X[y == cls].astype(np.float64)
+    X_cls = X_train[y_train == cls].astype(np.float64)
 
     print(f"\nClustering class {cls} with {len(X_cls)} samples")
 

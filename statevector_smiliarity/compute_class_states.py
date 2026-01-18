@@ -27,15 +27,21 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
 y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
 
-print("Loaded embeddings:", X.shape)
 
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded embeddings:", X_train.shape)
 # ----------------------------
 # Compute class means
 # ----------------------------
 class_states = {}
 
 for cls in np.unique(y):
-    X_cls = X[y == cls]
+    X_cls = X_train[y_train == cls]
     #X_cls = X_cls.astype(np.float64)
 
     # Mean in FP64
