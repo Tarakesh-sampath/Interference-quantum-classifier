@@ -4,6 +4,7 @@ from sklearn.metrics import accuracy_score
 
 from src.isdo.isdo_classifier import ISDOClassifier
 from src.utils.paths import load_paths
+import matplotlib.pyplot as plt
 
 BASE_ROOT, PATHS = load_paths()
 
@@ -18,13 +19,14 @@ test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
 X_test = X[test_idx]
 y_test = y[test_idx]
 
+accuracy = []
 for K in PATHS["class_count"]["K_values"]:
     proto_dir = os.path.join(PROTO_BASE, f"K{K}")
     clf = ISDOClassifier(proto_dir, K)
 
     y_pred = clf.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
-
+    accuracy.append(acc)
     print(f"ISDO | K={K:<2} | Accuracy: {acc:.4f}")
 
 """
@@ -39,3 +41,11 @@ ISDO | K=17 | Accuracy: 0.8740
 ISDO | K=19 | Accuracy: 0.8780
 ISDO | K=23 | Accuracy: 0.8747
 """
+
+
+plt.plot(PATHS["class_count"]["K_values"], accuracy, marker="o")
+plt.xlabel("Number of prototypes per class (K)")
+plt.ylabel("Test Accuracy")
+plt.title("ISDO Accuracy vs Interference Capacity")
+plt.grid(True)
+plt.savefig(os.path.join(PATHS["figures"], "isdo_k_sweep.png"))
