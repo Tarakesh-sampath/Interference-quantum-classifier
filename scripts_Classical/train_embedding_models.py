@@ -29,6 +29,9 @@ os.makedirs(LOG_DIR, exist_ok=True)
 X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
 y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
 
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
 print("Loaded embeddings:", X.shape)
 
 # ----------------------------
@@ -44,19 +47,16 @@ X_l2 = normalize(X_std, norm="l2")
 # ----------------------------
 # Train / test split
 # ----------------------------
-Xtr_s, Xte_s, ytr, yte = train_test_split(
-    X_std, y,
-    test_size=0.3,
-    random_state=42,
-    stratify=y
-)
 
-Xtr_l2, Xte_l2, _, _ = train_test_split(
-    X_l2, y,
-    test_size=0.3,
-    random_state=42,
-    stratify=y
-)
+# Standardized features (LR, SVM)
+Xtr_s = X_std[train_idx]
+Xte_s = X_std[test_idx]
+ytr   = y[train_idx]
+yte   = y[test_idx]
+
+# L2-normalized features (kNN)
+Xtr_l2 = X_l2[train_idx]
+Xte_l2 = X_l2[test_idx]
 
 results = {}
 
