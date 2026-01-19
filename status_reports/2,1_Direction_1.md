@@ -21,10 +21,8 @@ The objective of **Direction 1** was to design a **quantum classification primit
 The target observable was fixed as:
 
 $$
-\boxed{
 \mathcal{O}_{\text{ISDO}}(\psi)
-= \operatorname{Re}\langle \chi \mid \psi \rangle
-}
+= \mathrm{Re}\langle \chi | \psi \rangle
 $$
 
 where:
@@ -48,7 +46,7 @@ where:
 
 * Circuit A **correctly defines** the observable:
   $$
-  \langle Z\rangle = \operatorname{Re}\langle \chi \mid \psi \rangle
+  \langle Z\rangle = \mathrm{Re}\langle \chi | \psi \rangle
   $$
 
 ### Key insight
@@ -83,10 +81,8 @@ where:
 The circuit consistently measured:
 
 $$
-\boxed{
 \langle Z\rangle
-= 1 - 2|\langle \chi \mid \psi \rangle|^2
-}
+= 1 - 2|\langle \chi | \psi \rangle|^2
 $$
 
 ### Key realization
@@ -122,8 +118,8 @@ Through systematic testing, the following distinction was established:
 
 | Method | Observable | Description |
 | :--- | :--- | :--- |
-| **ISDO** | $\operatorname{Re}\langle \chi \mid \psi \rangle$ | Linear Interference |
-| **RFC** | $1 - 2|\langle \chi \mid \psi \rangle|^2$ | Quadratic Fidelity |
+| **ISDO** | $\mathrm{Re}\langle \chi | \psi \rangle$ | Linear Interference |
+| **RFC** | $1 - 2|\langle \chi | \psi \rangle|^2$ | Quadratic Fidelity |
 
 ### Empirical observations
 
@@ -149,11 +145,12 @@ To physically realize ISDO, the circuit must implement **linear interference**, 
 This was achieved by introducing a **transition unitary**:
 
 $$
-\boxed{
 U_{\chi\psi} = U_\chi U_\psi^\dagger
-}
-\quad\text{such that}\quad
+$$
+\text{such that}
+$$
 U_{\chi\psi}|\psi\rangle = |\chi\rangle
+$$
 $$
 
 ### Circuit structure (ISDO-B′)
@@ -169,9 +166,8 @@ Data:    |ψ⟩ ─────Uχψ────
 The ancilla measurement yields:
 
 $$
-\boxed{
-\langle Z\rangle = \operatorname{Re}\langle \chi \mid \psi \rangle
-}
+\langle Z\rangle = \mathrm{Re}\langle \chi | \psi \rangle
+$$
 $$
 
 ### Validation

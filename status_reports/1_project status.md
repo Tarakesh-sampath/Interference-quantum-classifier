@@ -105,26 +105,26 @@ Images are preprocessed using standard torchvision transforms. CNN embeddings ar
 ## 6. Models and Algorithms
 
 ### Classical Baselines
-- Logistic Regression (~0.909 accuracy)
-- Linear SVM (~0.912 accuracy)
-- k-NN (k = 5, ~0.926 accuracy)
+- Logistic Regression: $\approx 0.909$ accuracy
+- Linear SVM: $\approx 0.912$ accuracy
+- k-NN: $k = 5, \approx 0.926$ accuracy
 
 ### Quantum Methods
 
 #### Measurement-Based SWAP Test
 - Fidelity estimated via repeated measurements
-- Accuracy ≈ 0.875
+- Accuracy $\approx 0.875$
 - Runtime: minutes for full evaluation
 
 #### Measurement-Free Single-Prototype (Phase A)
 - Exact statevector fidelity
-- Accuracy ≈ 0.876
+- Accuracy $\approx 0.876$
 - Demonstrates measurement noise is not dominant
 
 #### Interference-Based Measurement-Free Classifier (Phase B)
 - Multiple prototypes per class (K = 3)
 - Coherent superposition and interference
-- Accuracy ≈ 0.886
+- Accuracy $\approx 0.886$
 - Runtime: milliseconds
 
 ---
@@ -145,12 +145,12 @@ Images are preprocessed using standard torchvision transforms. CNN embeddings ar
 
 | Method | Accuracy | Runtime |
 |------|---------|--------|
-| Logistic Regression | ~0.909 | Fast |
-| Linear SVM | ~0.912 | Fast |
-| k-NN (k=5) | ~0.926 | Fast |
-| SWAP Test (1024 shots) | ~0.875 | Minutes |
-| Measurement-Free (Phase A) | ~0.876 | ms |
-| Phase B (K=3) | **~0.886** | ms |
+| Logistic Regression | 0.909 | Fast |
+| Linear SVM | 0.912 | Fast |
+| k-NN (k=5) | 0.926 | Fast |
+| SWAP Test (1024 shots) | 0.875 | Minutes |
+| Measurement-Free (Phase A) | 0.876 | ms |
+| Phase B (K=3) | **0.886** | ms |
 
 ---
 

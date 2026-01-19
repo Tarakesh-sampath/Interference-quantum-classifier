@@ -21,7 +21,9 @@ This report provides a formal technical review of quantum classification methods
 *   **Shot Efficiency**: Achieves **Heisenberg-limited** accuracy ($\Theta(1/\epsilon)$ queries). 
 *   **Advantage**: Does not require the Quantum Fourier Transform (QFT), making it much more robust for NISQ devices.
 *   **Expression**: 
-    $$|0\rangle |\psi\rangle \to |\text{overlap}\rangle |\psi\rangle$$
+$$
+|0\rangle |\psi\rangle -> |\text{overlap}\rangle |\psi\rangle
+$$
     This "writes" the fidelity into a register without collapsing the original superposition.
 
 ---
@@ -59,5 +61,5 @@ This report provides a formal technical review of quantum classification methods
 | **VQFE** | High (Training) | No | Parameter Tuning |
 
 ---
-### 💡 Project Conclusion
+### Project Conclusion
 While the "Big 3" get most of the attention in textbooks, recent 2021-2024 research (like **Patrick Rall's SVT**) proves that we can achieve **classification without measurement collapse**. In our project, we use the **Interference Average (Phase B)** as a bridge: it uses the parallel nature of the SWAP-test to reduce the "effective" shots compared to testing prototypes one-by-one.

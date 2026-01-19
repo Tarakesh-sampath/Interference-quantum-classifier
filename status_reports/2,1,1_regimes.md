@@ -22,7 +22,7 @@ They only define **how class states are constructed and updated**.
 * **Measurement**: ancilla $\langle Z\rangle$
 * **Decision rule**:
   $$
-  \hat{y}(x) = \operatorname{sign}\big(\operatorname{Re}\langle \chi \mid \psi(x)\rangle\big)
+  \hat{y}(x) = \text{sign}\big(\mathrm{Re}\langle \chi | \psi(x)\rangle\big)
   $$
 
 ### Learned Objects
@@ -63,12 +63,10 @@ Given labeled embeddings:
 Construct:
 
 $$
-\boxed{
 |\chi\rangle
-= \operatorname{normalize}\left(
+= \text{normalize}\left(
 \sum_k |\phi_k^+\rangle - \sum_k |\phi_k^-\rangle
 \right)
-}
 $$
 
 ---
@@ -85,9 +83,9 @@ $$
 
 For each test sample:
 $$
-s = \operatorname{Re}\langle \chi | \psi \rangle
+s = \mathrm{Re}\langle \chi | \psi \rangle
 \quad\Rightarrow\quad
-\hat{y} = \operatorname{sign}(s)
+\hat{y} = \text{sign}(s)
 $$
 
 ---
@@ -134,12 +132,10 @@ $$
 
 Option B — Bootstrap (recommended):
 $$
-\boxed{
 |\chi_0\rangle
-= \operatorname{normalize}\left(
+= \text{normalize}\left(
 \sum_{i=1}^{K} y_i |\psi_i\rangle
 \right)
-}
 $$
 
 ---
@@ -150,7 +146,7 @@ For each training sample $(|\psi\rangle, y)$, with $y \in \{+1, -1\}$:
 
 1. Measure:
    $$
-   s = \operatorname{Re}\langle \chi_t | \psi \rangle
+   s = \mathrm{Re}\langle \chi_t | \psi \rangle
    $$
 
 2. If correctly classified:
@@ -160,12 +156,10 @@ For each training sample $(|\psi\rangle, y)$, with $y \in \{+1, -1\}$:
 
 3. If misclassified:
    $$
-   \boxed{
    |\chi_{t+1}\rangle
-   = \operatorname{normalize}\left(
+   = \text{normalize}\left(
    |\chi_t\rangle + \eta \cdot y |\psi\rangle
    \right)
-   }
    $$
 
 ---
@@ -231,12 +225,12 @@ Each state:
 
 For input $|\psi\rangle$:
 $$
-s_j = \operatorname{Re}\langle \chi^{(j)} | \psi \rangle
+s_j = \mathrm{Re}\langle \chi^{(j)} | \psi \rangle
 $$
 
 Decision:
 $$
-\hat{y} = \operatorname{sign}\left(\max_j s_j\right)
+\hat{y} = \text{sign}\left(\max_j s_j\right)
 $$
 
 ---

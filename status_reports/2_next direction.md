@@ -9,12 +9,13 @@ This document summarizes three promising technical directions to advance the goa
 ### Core Idea
 Design a quantum classifier where **only the sign of interference** determines the class label, rather than estimating a fidelity value or probability distribution.
 
-Instead of computing:
-|⟨Ψ_test | Φ_class⟩|²
+$$
+|\langle \Psi_{\text{test}} | \Phi_{\text{class}} \rangle|^2
+$$
 
 the circuit is structured so that:
-- Constructive interference → ancilla biased toward |0⟩
-- Destructive interference → ancilla biased toward |1⟩
+- Constructive interference -> ancilla biased toward $|0\rangle$
+- Destructive interference -> ancilla biased toward $|1\rangle$
 - The **sign** of an expectation value determines the class
 
 ### Why This Matters
@@ -63,10 +64,12 @@ The classifier:
 
 ### Core Idea
 Represent each class as a **quantum memory state**:
-|Φ_c⟩ = Σ_k α_k |φ_{c,k}⟩
+$$
+|\Phi_c\rangle = \sum_k \alpha_k |\phi_{c,k}\rangle
+$$
 
 where:
-- |φ_{c,k}⟩ are class prototypes (from CNN embeddings)
+- $|\phi_{c,k}\rangle$ are class prototypes (from CNN embeddings)
 - Aggregation is **coherent**, not classical
 - The test state is queried against the memory state via interference
 
