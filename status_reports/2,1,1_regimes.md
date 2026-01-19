@@ -34,11 +34,11 @@ They only define **how class states are constructed and updated**.
 
 ```
 image
-  → CNN
-  → embedding ($\mathbb{R}^{32}$)
-  → L2 normalize
-  → $|\psi\rangle$
-  → ISDO($|\psi\rangle$, $|\chi\rangle$)
+  -> CNN
+  -> embedding ($\mathbb{R}^{32}$)
+  -> L2 normalize
+  -> $|\psi\rangle$
+  -> ISDO($|\psi\rangle$, $|\chi\rangle$)
 ```
 
 ---
@@ -76,10 +76,10 @@ $$
 ### Implementation Steps
 
 1. Collect embeddings per class
-2. Optionally cluster (KMeans) → prototypes
+2. Optionally cluster (KMeans) -> prototypes
 3. Sum positive prototypes
 4. Subtract negative prototypes
-5. Normalize → class state $|\chi\rangle$
+5. Normalize -> class state $|\chi\rangle$
 
 ### Inference
 
@@ -155,7 +155,7 @@ For each training sample $(|\psi\rangle, y)$, with $y \in \{+1, -1\}$:
 
 2. If correctly classified:
    ```text
-   y · s ≥ 0  →  no update
+   y * s >= 0  ->  no update
    ```
 
 3. If misclassified:
@@ -316,7 +316,7 @@ Regime 3
 
 ### Recommended Next Action
 
-👉 **Implement Regime 2 end-to-end** on your existing embeddings and log:
+**Implement Regime 2 end-to-end** on your existing embeddings and log:
 
 * accuracy vs time
 * number of updates
