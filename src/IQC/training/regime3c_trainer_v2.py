@@ -35,11 +35,8 @@ class Regime3CTrainer:
         }
 
     def aggregated_score(self, psi):
-        scores = np.array([
-            float(np.real(np.vdot(cs.vector, psi)))
-            for cs in self.memory_bank.class_states
-        ])
-        return scores.mean()  # uniform weights
+        scores = self.memory_bank.scores(psi)
+        return sum(scores) / len(scores)
 
     def step(self, psi, y):
         S = self.aggregated_score(psi)

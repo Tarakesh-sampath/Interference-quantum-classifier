@@ -8,6 +8,8 @@ from src.utils.seed import set_seed
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.interference.circuit_backend_hadamard import HadamardInterferenceBackend
 
 from src.IQC.training.regime3c_trainer_v2 import Regime3CTrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
@@ -68,7 +70,13 @@ for _ in range(3):
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
 
-memory_bank = MemoryBank(class_states)
+backend = MathInterferenceBackend()
+backend_hadamard = HadamardInterferenceBackend()
+
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
 
 print("Initial number of memories:", len(memory_bank.class_states))
 

@@ -7,6 +7,7 @@ from src.utils.seed import set_seed
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.training.regime3a_trainer import Regime3ATrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.interference.math_backend import MathInterferenceBackend
 
 
 # -------------------------------------------------

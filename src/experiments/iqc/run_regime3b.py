@@ -3,6 +3,7 @@ from src.IQC.memory.memory_bank import MemoryBank
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.training.regime3a_trainer import Regime3ATrainer
+from src.IQC.interference.math_backend import MathInterferenceBackend
 
 
 from src.utils.paths import load_paths
@@ -55,9 +56,15 @@ for _ in range(3):
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
 
-memory_bank = MemoryBank(class_states)
+backend = MathInterferenceBackend()
+
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
 trainer = Regime3ATrainer(memory_bank, eta=0.1)
 acc = trainer.train(dataset)
+
 # now we train 3b 
 classifier = Regime3BClassifier(trainer.memory_bank)
 
@@ -74,6 +81,6 @@ print("Memory usage:", Counter(trainer.history["winner_idx"]))
 """
 🌱 Global seed set to 42
 Loaded train embeddings: (3500, 32)
-Regime 3-B accuracy: 0.8817142857142857
-Memory usage: Counter({0: 1266, 2: 1238, 1: 996})
+Regime 3-B accuracy: 0.8342857142857143
+Memory usage: Counter({2: 1473, 0: 1243, 1: 784})
 """
