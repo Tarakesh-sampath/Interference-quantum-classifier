@@ -1,17 +1,12 @@
 import os
 import numpy as np
-from collections import Counter
 
 from src.utils.paths import load_paths
 from src.utils.seed import set_seed
 
-from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.memory.memory_bank import MemoryBank
-
-from src.IQC.training.regime3c_trainer import Regime3CTrainer
+from src.IQC.training.regime3a_trainer import Regime3ATrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
-import pickle
 
 
 # -------------------------------------------------
@@ -25,10 +20,8 @@ set_seed(42)
 # -------------------------------------------------
 _, PATHS = load_paths()
 EMBED_DIR = PATHS["embeddings"]
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
 os.makedirs(EMBED_DIR, exist_ok=True)
-os.makedirs(PATHS["artifacts"], exist_ok=True)
+
 
 # -------------------------------------------------
 # Load embeddings (TRAIN SPLIT)
@@ -44,56 +37,55 @@ print("Loaded train embeddings:", X_train.shape)
 
 
 # -------------------------------------------------
-# Prepare dataset (same as Regime 2 / 3-A / 3-B)
+# Prepare dataset
 # -------------------------------------------------
 dataset = [
     (embedding_to_state(x), int(label))
     for x, label in zip(X_train, y_train)
 ]
 
-# shuffle (important for online + growth)
+# shuffle (important for consolidation)
 rng = np.random.default_rng(42)
 perm = rng.permutation(len(dataset))
 dataset = [dataset[i] for i in perm]
 
 
 # -------------------------------------------------
-# Initialize memory bank (M = 3)
+# 🔒 LOAD MEMORY BANK FROM REGIME 3-C
 # -------------------------------------------------
-d = dataset[0][0].shape[0]
+# IMPORTANT:
+# This must be the SAME memory_bank produced by Regime 3-C
+from src.IQC.memory.memory_bank import MemoryBank
+import pickle
 
-class_states = []
-for _ in range(3):
-    v = np.random.randn(d)
-    v /= np.linalg.norm(v)
-    class_states.append(ClassState(v))
+MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
 
-memory_bank = MemoryBank(class_states)
+with open(MEMORY_PATH, "rb") as f:
+    memory_bank = pickle.load(f)
 
-print("Initial number of memories:", len(memory_bank.class_states))
+print("Loaded memory bank with",
+      len(memory_bank.class_states),
+      "memories")
 
 
 # -------------------------------------------------
-# Train Regime 3-C (percentile-based τ)
+# 🔁 CONSOLIDATION PHASE (NO GROWTH)
 # -------------------------------------------------
-trainer = Regime3CTrainer(
+# Use Regime 3-A trainer:
+# - updates memories
+# - NO spawning logic
+trainer = Regime3ATrainer(
     memory_bank=memory_bank,
-    eta=0.1,
-    percentile=5,       # τ = 5th percentile of margins
-    tau_abs = -0.121,
-    margin_window=500   # sliding window for stability
+    eta=0.05      # slightly smaller eta for stabilization
 )
 
-trainer.train(dataset)
-
-print("Training finished.")
-print("Number of memories after training:", len(memory_bank.class_states))
-print("Number of spawned memories:", trainer.num_spawns)
-print("Number of updates:", trainer.num_updates)
+acc_train = trainer.train(dataset)
+print("Consolidation pass accuracy:", acc_train)
+print("Updates during consolidation:", trainer.num_updates)
 
 
 # -------------------------------------------------
-# Evaluate using Regime 3-B inference
+# 📊 FINAL EVALUATION (Regime 3-B inference)
 # -------------------------------------------------
 classifier = Regime3BClassifier(memory_bank)
 
@@ -102,29 +94,16 @@ for psi, y in dataset:
     if classifier.predict(psi) == y:
         correct += 1
 
-acc_3c = correct / len(dataset)
-print("Regime 3-C accuracy (3-B inference):", acc_3c)
+final_acc = correct / len(dataset)
+print("FINAL Regime 3-C accuracy:", final_acc)
 
-
-# -------------------------------------------------
-# Optional diagnostics
-# -------------------------------------------------
-print("Final memory count:", len(memory_bank.class_states))
-
-with open(MEMORY_PATH, "wb") as f:
-    pickle.dump(memory_bank, f)
-
-print("Saved Regime 3-C memory bank.")
 
 ### output
 """
 🌱 Global seed set to 42
 Loaded train embeddings: (3500, 32)
-Initial number of memories: 3
-Training finished.
-Number of memories after training: 3
-Number of spawned memories: 0
-Number of updates: 524
-Regime 3-C accuracy (3-B inference): 0.7948571428571428
-Final memory count: 3
+Loaded memory bank with 22 memories
+Consolidation pass accuracy: 0.8048571428571428
+Updates during consolidation: 683
+FINAL Regime 3-C accuracy: 0.884
 """

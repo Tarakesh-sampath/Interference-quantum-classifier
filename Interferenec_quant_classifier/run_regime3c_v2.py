@@ -9,7 +9,7 @@ from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
 
-from src.IQC.training.regime3c_trainer import Regime3CTrainer
+from src.IQC.training.regime3c_trainer_v2 import Regime3CTrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
 import pickle
 
@@ -122,9 +122,10 @@ print("Saved Regime 3-C memory bank.")
 Loaded train embeddings: (3500, 32)
 Initial number of memories: 3
 Training finished.
-Number of memories after training: 3
-Number of spawned memories: 0
-Number of updates: 524
-Regime 3-C accuracy (3-B inference): 0.7948571428571428
-Final memory count: 3
+Number of memories after training: 22
+Number of spawned memories: 19
+Number of updates: 429
+Regime 3-C accuracy (3-B inference): 0.788
+Final memory count: 22
+Saved Regime 3-C memory bank.
 """

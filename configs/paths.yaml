@@ -7,6 +7,7 @@ paths:
   figures: "results/figures"
   logs: "results/logs"
   class_prototypes: "results/embeddings/class_prototypes"
+  artifacts: "results/artifacts"
 
 class_count:
   K: 3
