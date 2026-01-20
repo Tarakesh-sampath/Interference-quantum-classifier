@@ -36,7 +36,7 @@ measurement-free-quantum-classifier/
                     calculate_isdo_k_sweep.py
                     __init__.py
                 isdo_circuit_test/
-                    test_isdo_circuit_v2.py
+                    test_isdo_circuits_v2.py
                     test_isdo_circuits_v1.py
                     __init__.py
                 circuits/
@@ -45,13 +45,13 @@ measurement-free-quantum-classifier/
                     __init__.py
         archive/
             __init__.py
+            swap_test/
+                swap_test_classifier.py
+                evaluate_swap_test_batch.py
+                __init__.py
             statevector_smiliarity/
                 compute_class_states.py
                 evaluate_statevector_similarity.py
-                __init__.py
-            swap test/
-                swap_test_classifier.py
-                evaluate_swap_test_batch.py
                 __init__.py
             rfc/
                 reflection_classifier.py
@@ -59,10 +59,10 @@ measurement-free-quantum-classifier/
         classical/
             cnn.py
             __init__.py
-        expriments/
+        experiments/
             __init__.py
             iqc/
-                run_regime3c.py
+                run_regime3c_v1.py
                 run_regime3b.py
                 run_regime3a.py
                 run_regime2.py
@@ -1056,7 +1056,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 
 from isdo_classifier import ISDOClassifier
-from ... utils.paths import load_paths
+from src.utils.paths import load_paths
 
 BASE_ROOT, PATHS = load_paths()
 
@@ -1121,8 +1121,8 @@ import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from .. isdo_classifier import ISDOClassifier
-from .... utils.paths import load_paths
+from src.quantum.isdo.isdo_classifier import ISDOClassifier
+from src.utils.paths import load_paths
 import matplotlib.pyplot as plt
 
 BASE_ROOT, PATHS = load_paths() 
@@ -1179,8 +1179,8 @@ from tqdm import tqdm
 
 from qiskit.quantum_info import Statevector
 
-from .... utils.paths import load_paths
-from .... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 
 # ----------------------------
@@ -1214,8 +1214,8 @@ def to_quantum_state(x):
 # ----------------------------
 def load_class_superposition(cls):
     protos = []
-    for k in range(K):
-        p = np.load(os.path.join(CLASS_DIR, f"class{cls}_proto{k}.npy"))
+    for k in range(1,K):
+        p = np.load(os.path.join(CLASS_DIR, f"K{cls}/class{cls}_proto{k}.npy"))
         protos.append(p)
 
     # Build joint state |k> |phi_k>
@@ -1308,8 +1308,8 @@ import os
 import numpy as np
 from sklearn.cluster import KMeans
 
-from .... utils.paths import load_paths
-from .... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 # ----------------------------
 # Reproducibility
@@ -1386,7 +1386,7 @@ for K in K_VALUES:
 
 ```
 
-## File: src/quantum/isdo/isdo_circuit_test/test_isdo_circuit_v2.py
+## File: src/quantum/isdo/isdo_circuit_test/test_isdo_circuits_v2.py
 
 ```py
 """
@@ -1401,9 +1401,9 @@ Only Circuit B' gives the true ISDO observable: Re⟨χ|ψ⟩
 """
 
 import numpy as np
-from .. circuits.circuit_a_controlled_state import run_isdo_circuit_a
-from .... archive.rfc.reflection_classifier import run_isdo_circuit_b
-from .. circuits.circuit_b_prime_transition import run_isdo_circuit_b_prime, verify_isdo_b_prime
+from src.quantum.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
+from src.archive.rfc.reflection_classifier import run_isdo_circuit_b
+from src.quantum.isdo.circuits.circuit_b_prime_transition import run_isdo_circuit_b_prime, verify_isdo_b_prime
 
 
 def test_all_circuits():
@@ -1548,9 +1548,9 @@ if __name__ == "__main__":
 ```py
 import numpy as np
 
-from .. circuits.circuit_a_controlled_state import run_isdo_circuit_a
-from .... archive.rfc.reflection_classifier import run_isdo_circuit_b
-from ... utils.common import build_chi_state
+from src.quantum.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
+from src.archive.rfc.reflection_classifier import run_isdo_circuit_b
+from src.utils.common import build_chi_state
 
 
 # Dummy normalized vectors for sanity test
@@ -1813,206 +1813,7 @@ def verify_isdo_b_prime(psi, chi):
 
 ```
 
-## File: src/archive/statevector_smiliarity/compute_class_states.py
-
-```py
-import os
-import json
-import numpy as np
-from sklearn.preprocessing import normalize
-
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-BASE_ROOT, PATHS = load_paths()
-
-EMBED_DIR = PATHS["embeddings"]
-SAVE_DIR = PATHS["embeddings"]
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-
-
-
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded embeddings:", X_train.shape)
-# ----------------------------
-# Compute class means
-# ----------------------------
-class_states = {}
-
-for cls in np.unique(y):
-    X_cls = X_train[y_train == cls]
-    #X_cls = X_cls.astype(np.float64)
-
-    # Mean in FP64
-    mean_vec = X_cls.mean(axis=0)
-
-    # Exact FP64 normalization
-    norm = np.sqrt(np.sum(mean_vec ** 2))
-    mean_vec = mean_vec / norm
-
-    # Sanity check (important)
-    assert np.isclose(np.sum(mean_vec ** 2), 1.0, atol=1e-12)
-
-    class_states[int(cls)] = mean_vec
-
-    print(
-        f"Class {cls}: "
-        f"samples = {len(X_cls)}, "
-        f"norm = {np.linalg.norm(mean_vec):.12f}"
-    )
-
-# ----------------------------
-# Save
-# ----------------------------
-np.save(os.path.join(SAVE_DIR, "class_state_0.npy"), class_states[0])
-np.save(os.path.join(SAVE_DIR, "class_state_1.npy"), class_states[1])
-
-# Optional: save metadata
-with open(os.path.join(SAVE_DIR, "class_states_meta.json"), "w") as f:
-    json.dump(
-        {
-            "embedding_dim": X.shape[1],
-            "classes": list(class_states.keys()),
-            "normalization": "l2",
-            "source": "mean_of_class_embeddings",
-        },
-        f,
-        indent=2,
-    )
-
-print("\n✅ Class states saved:")
-print(" - class_state_0.npy (Benign)")
-print(" - class_state_1.npy (Malignant)")
-
-```
-
-## File: src/archive/statevector_smiliarity/evaluate_statevector_similarity.py
-
-```py
-import os
-import numpy as np
-from tqdm import tqdm
-
-from qiskit.quantum_info import Statevector
-
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-
-# ----------------------------
-# Quantum-safe conversion
-# ----------------------------
-def to_quantum_state(x):
-    x = np.asarray(x, dtype=np.float64).reshape(-1)
-    n = len(x)
-    if not (n & (n - 1) == 0):
-        raise ValueError(f"State length {n} is not power of 2")
-    x = x / np.sqrt(np.sum(x ** 2))
-    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
-    return x
-
-
-# ----------------------------
-# Load class states
-# ----------------------------
-phi0 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
-)
-phi1 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
-)
-
-sv_phi0 = Statevector(phi0)
-sv_phi1 = Statevector(phi1)
-
-
-# ----------------------------
-# Load embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-X = X[test_idx]
-y = y[test_idx]
-
-N = len(X)
-correct = 0
-
-print(f"\n🔬 Evaluating measurement-free statevector classifier on {N} samples\n")
-
-for i in tqdm(range(N)):
-    psi = Statevector(to_quantum_state(X[i]))
-
-    F0 = abs(psi.inner(sv_phi0)) ** 2
-    F1 = abs(psi.inner(sv_phi1)) ** 2
-
-    pred = 0 if F0 > F1 else 1
-    if pred == y[i]:
-        correct += 1
-
-accuracy = correct / N
-
-print("\n==============================")
-print("Measurement-free (Statevector) Quantum Classifier")
-print(f"Samples: {N}")
-print(f"Accuracy: {accuracy:.4f}")
-print("==============================\n")
-
-## output
-"""
-🌱 Global seed set to 42
-
-🔬 Evaluating measurement-free statevector classifier on 1500 samples
-
-100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 29429.03it/s]
-
-==============================
-Measurement-free (Statevector) Quantum Classifier
-Samples: 1500
-Accuracy: 0.8827
-==============================
-"""
-```
-
-## File: src/archive/statevector_smiliarity/__init__.py
-
-```py
-
-```
-
-## File: src/archive/swap test/swap_test_classifier.py
+## File: src/archive/swap_test/swap_test_classifier.py
 
 ```py
 import os
@@ -2139,7 +1940,7 @@ Predicted class: 1
 
 ```
 
-## File: src/archive/swap test/evaluate_swap_test_batch.py
+## File: src/archive/swap_test/evaluate_swap_test_batch.py
 
 ```py
 import os
@@ -2149,8 +1950,8 @@ from tqdm import tqdm
 from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 
 # ----------------------------
@@ -2276,7 +2077,206 @@ Accuracy: 0.8784
 
 ```
 
-## File: src/archive/swap test/__init__.py
+## File: src/archive/swap_test/__init__.py
+
+```py
+
+```
+
+## File: src/archive/statevector_smiliarity/compute_class_states.py
+
+```py
+import os
+import json
+import numpy as np
+from sklearn.preprocessing import normalize
+
+from ... utils.paths import load_paths
+from ... utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+BASE_ROOT, PATHS = load_paths()
+
+EMBED_DIR = PATHS["embeddings"]
+SAVE_DIR = PATHS["embeddings"]
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# ----------------------------
+# Load embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded embeddings:", X_train.shape)
+# ----------------------------
+# Compute class means
+# ----------------------------
+class_states = {}
+
+for cls in np.unique(y):
+    X_cls = X_train[y_train == cls]
+    #X_cls = X_cls.astype(np.float64)
+
+    # Mean in FP64
+    mean_vec = X_cls.mean(axis=0)
+
+    # Exact FP64 normalization
+    norm = np.sqrt(np.sum(mean_vec ** 2))
+    mean_vec = mean_vec / norm
+
+    # Sanity check (important)
+    assert np.isclose(np.sum(mean_vec ** 2), 1.0, atol=1e-12)
+
+    class_states[int(cls)] = mean_vec
+
+    print(
+        f"Class {cls}: "
+        f"samples = {len(X_cls)}, "
+        f"norm = {np.linalg.norm(mean_vec):.12f}"
+    )
+
+# ----------------------------
+# Save
+# ----------------------------
+np.save(os.path.join(SAVE_DIR, "class_state_0.npy"), class_states[0])
+np.save(os.path.join(SAVE_DIR, "class_state_1.npy"), class_states[1])
+
+# Optional: save metadata
+with open(os.path.join(SAVE_DIR, "class_states_meta.json"), "w") as f:
+    json.dump(
+        {
+            "embedding_dim": X.shape[1],
+            "classes": list(class_states.keys()),
+            "normalization": "l2",
+            "source": "mean_of_class_embeddings",
+        },
+        f,
+        indent=2,
+    )
+
+print("\n✅ Class states saved:")
+print(" - class_state_0.npy (Benign)")
+print(" - class_state_1.npy (Malignant)")
+
+```
+
+## File: src/archive/statevector_smiliarity/evaluate_statevector_similarity.py
+
+```py
+import os
+import numpy as np
+from tqdm import tqdm
+
+from qiskit.quantum_info import Statevector
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+
+# ----------------------------
+# Quantum-safe conversion
+# ----------------------------
+def to_quantum_state(x):
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    n = len(x)
+    if not (n & (n - 1) == 0):
+        raise ValueError(f"State length {n} is not power of 2")
+    x = x / np.sqrt(np.sum(x ** 2))
+    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
+    return x
+
+
+# ----------------------------
+# Load class states
+# ----------------------------
+phi0 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
+)
+phi1 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
+)
+
+sv_phi0 = Statevector(phi0)
+sv_phi1 = Statevector(phi1)
+
+
+# ----------------------------
+# Load embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X = X[test_idx]
+y = y[test_idx]
+
+N = len(X)
+correct = 0
+
+print(f"\n🔬 Evaluating measurement-free statevector classifier on {N} samples\n")
+
+for i in tqdm(range(N)):
+    psi = Statevector(to_quantum_state(X[i]))
+
+    F0 = abs(psi.inner(sv_phi0)) ** 2
+    F1 = abs(psi.inner(sv_phi1)) ** 2
+
+    pred = 0 if F0 > F1 else 1
+    if pred == y[i]:
+        correct += 1
+
+accuracy = correct / N
+
+print("\n==============================")
+print("Measurement-free (Statevector) Quantum Classifier")
+print(f"Samples: {N}")
+print(f"Accuracy: {accuracy:.4f}")
+print("==============================\n")
+
+## output
+"""
+🌱 Global seed set to 42
+
+🔬 Evaluating measurement-free statevector classifier on 1500 samples
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 29429.03it/s]
+
+==============================
+Measurement-free (Statevector) Quantum Classifier
+Samples: 1500
+Accuracy: 0.8827
+==============================
+"""
+```
+
+## File: src/archive/statevector_smiliarity/__init__.py
 
 ```py
 
@@ -2291,7 +2291,7 @@ import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
 from qiskit.circuit.library import StatePreparation, UnitaryGate
-from ....utils.common import load_statevector
+from ... utils.common import load_statevector
 
 
 def reflection_operator(chi):
@@ -2413,28 +2413,28 @@ class PCamCNN(nn.Module):
 
 ```
 
-## File: src/expriments/__init__.py
+## File: src/experiments/__init__.py
 
 ```py
 
 ```
 
-## File: src/expriments/iqc/run_regime3c.py
+## File: src/experiments/iqc/run_regime3c_v1.py
 
 ```py
 import os
 import numpy as np
 from collections import Counter
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
-from ... IQC.states.class_state import ClassState
-from ... IQC.encoding.embedding_to_state import embedding_to_state
-from ... IQC.memory.memory_bank import MemoryBank
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.memory.memory_bank import MemoryBank
 
-from ... IQC.training.regime3c_trainer_v1 import Regime3CTrainer
-from ... IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.training.regime3c_trainer_v1 import Regime3CTrainer
+from src.IQC.inference.regime3b_classifier import Regime3BClassifier
 import pickle
 
 
@@ -2554,18 +2554,18 @@ Final memory count: 3
 """
 ```
 
-## File: src/expriments/iqc/run_regime3b.py
+## File: src/experiments/iqc/run_regime3b.py
 
 ```py
-from ... IQC.inference.regime3b_classifier import Regime3BClassifier
-from ... IQC.memory.memory_bank import MemoryBank
-from ... IQC.states.class_state import ClassState
-from ... IQC.encoding.embedding_to_state import embedding_to_state
-from ... IQC.training.regime3a_trainer import Regime3ATrainer
+from src.IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.training.regime3a_trainer import Regime3ATrainer
 
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 import os
 import numpy as np
@@ -2638,16 +2638,16 @@ Memory usage: Counter({0: 1266, 2: 1238, 1: 996})
 """
 ```
 
-## File: src/expriments/iqc/run_regime3a.py
+## File: src/experiments/iqc/run_regime3a.py
 
 ```py
-from ... IQC.training.regime3a_trainer import Regime3ATrainer
-from ... IQC.memory.memory_bank import MemoryBank
-from ... IQC.states.class_state import ClassState
-from ... IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.training.regime3a_trainer import Regime3ATrainer
+from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 import os
 import numpy as np
@@ -2711,19 +2711,19 @@ Counter({0: 1266, 2: 1238, 1: 996})
 """
 ```
 
-## File: src/expriments/iqc/run_regime2.py
+## File: src/experiments/iqc/run_regime2.py
 
 ```py
 import numpy as np
 import os
 
-from ... IQC.states.class_state import ClassState
-from ... IQC.encoding.embedding_to_state import embedding_to_state
-from ... IQC.training.regime2_trainer import Regime2Trainer
-from ... IQC.training.metrics import summarize_training
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.training.regime2_trainer import Regime2Trainer
+from src.IQC.training.metrics import summarize_training
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 # ----------------------------
 # Reproducibility
@@ -2786,18 +2786,18 @@ Training stats: {'mean_margin': 0.14930659062683652, 'min_margin': -0.7069261085
 """
 ```
 
-## File: src/expriments/iqc/run_regime3c_consolidation.py
+## File: src/experiments/iqc/run_regime3c_consolidation.py
 
 ```py
 import os
 import numpy as np
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
-from ... IQC.encoding.embedding_to_state import embedding_to_state
-from ... IQC.training.regime3a_trainer import Regime3ATrainer
-from ... IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.training.regime3a_trainer import Regime3ATrainer
+from src.IQC.inference.regime3b_classifier import Regime3BClassifier
 
 
 # -------------------------------------------------
@@ -2901,22 +2901,22 @@ FINAL Regime 3-C accuracy: 0.884
 
 ```
 
-## File: src/expriments/iqc/run_regime3c_v2.py
+## File: src/experiments/iqc/run_regime3c_v2.py
 
 ```py
 import os
 import numpy as np
 from collections import Counter
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
-from ... IQC.states.class_state import ClassState
-from ... IQC.encoding.embedding_to_state import embedding_to_state
-from ... IQC.memory.memory_bank import MemoryBank
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.memory.memory_bank import MemoryBank
 
-from ... IQC.training.regime3c_trainer_v2 import Regime3CTrainer
-from ... IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.training.regime3c_trainer_v2 import Regime3CTrainer
+from src.IQC.inference.regime3b_classifier import Regime3BClassifier
 import pickle
 
 
@@ -3037,7 +3037,7 @@ Saved Regime 3-C memory bank.
 """
 ```
 
-## File: src/expriments/iqc/__init__.py
+## File: src/experiments/iqc/__init__.py
 
 ```py
 
