@@ -9,7 +9,7 @@ from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
 
-from src.IQC.training.regime3c_trainer import Regime3CTrainer
+from src.IQC.training.regime3c_trainer_v1 import Regime3CTrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
 import pickle
 
