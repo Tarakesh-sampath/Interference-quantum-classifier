@@ -6,8 +6,8 @@ class ISDOClassifier:
         self.proto_dir = proto_dir
         self.K = K
         self.prototypes = {
-            0: [np.load(os.path.join(proto_dir, f"class0_proto{i}.npy")) for i in range(K)],
-            1: [np.load(os.path.join(proto_dir, f"class1_proto{i}.npy")) for i in range(K)],
+            0: [np.load(os.path.join(proto_dir, f"K{K}/class0_proto{i}.npy")) for i in range(K)],
+            1: [np.load(os.path.join(proto_dir, f"K{K}/class1_proto{i}.npy")) for i in range(K)],
         }
 
     def predict_one(self, psi):
