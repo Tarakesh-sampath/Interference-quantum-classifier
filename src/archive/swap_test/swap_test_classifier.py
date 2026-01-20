@@ -5,8 +5,8 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector
 from qiskit_aer import AerSimulator
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 
 # ----------------------------

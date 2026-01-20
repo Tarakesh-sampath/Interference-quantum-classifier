@@ -2,7 +2,7 @@ import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from isdo_classifier import ISDOClassifier
+from src.quantum.isdo.isdo_classifier import ISDOClassifier
 from src.utils.paths import load_paths
 
 BASE_ROOT, PATHS = load_paths()
