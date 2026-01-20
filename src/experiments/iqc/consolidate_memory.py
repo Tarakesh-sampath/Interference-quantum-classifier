@@ -7,7 +7,7 @@ from src.utils.seed import set_seed
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.training.winner_take_all_trainer import WinnerTakeAllTrainer
 from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
-from src.IQC.interference.ExactBackend import ExactBackend
+from src.IQC.interference.exact_backend import ExactBackend
 
 
 # -------------------------------------------------
