@@ -73,6 +73,7 @@ measurement-free-quantum-classifier/
                 memory_bank.py
                 __init__.py
             interference/
+                circuit_backend_hadamard.py
                 base.py
                 circuit_backend_transition.py
                 math_backend.py
@@ -124,7 +125,6 @@ measurement-free-quantum-classifier/
                 regime3c_trainer_v1.py
                 __init__.py
             interference/
-                circuit_backend_hadamard.py
                 __init__.py
             inference/
                 regime3a_classifier.py
@@ -1125,8 +1125,8 @@ class ISDOClassifier:
         self.proto_dir = proto_dir
         self.K = K
         self.prototypes = {
-            0: [np.load(os.path.join(proto_dir, f"class0_proto{i}.npy")) for i in range(K)],
-            1: [np.load(os.path.join(proto_dir, f"class1_proto{i}.npy")) for i in range(K)],
+            0: [np.load(os.path.join(proto_dir, f"K{K}/class0_proto{i}.npy")) for i in range(K)],
+            1: [np.load(os.path.join(proto_dir, f"K{K}/class1_proto{i}.npy")) for i in range(K)],
         }
 
     def predict_one(self, psi):
@@ -1301,8 +1301,6 @@ Only Circuit B' gives the true ISDO observable: Re⟨χ|ψ⟩
 """
 
 import numpy as np
-from src.quantum.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
-from src.archive.rfc.reflection_classifier import run_isdo_circuit_b
 from src.quantum.isdo.circuits.circuit_b_prime_transition import run_isdo_circuit_b_prime, verify_isdo_b_prime
 
 
@@ -1332,40 +1330,6 @@ def test_all_circuits():
     print(f"|χ⟩ = {chi}")
     print(f"\n⟨χ|ψ⟩ = {np.vdot(chi, psi)}")
     print(f"|⟨χ|ψ⟩|² = {inner_product_magnitude_sq}")
-    print()
-    
-    # Circuit A: Oracle model (conceptual)
-    print("-" * 70)
-    print("Circuit A: Oracle Model (Conceptual)")
-    print("-" * 70)
-    print("Purpose: Pedagogical/motivational")
-    print("Observable: Attempts Re⟨χ|ψ⟩ but with oracle assumption")
-    print("Status: Conceptual only, not for hardware")
-    try:
-        result_a = run_isdo_circuit_a(psi, chi)
-        print(f"Result:   {result_a:.6f}")
-        print(f"Expected: {expected_isdo:.6f}")
-        print(f"Match:    {np.allclose(result_a, expected_isdo, atol=1e-6)}")
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-    
-    # Circuit B: Reflection-based
-    print("-" * 70)
-    print("Circuit B: Reflection-Based Phase Kickback")
-    print("-" * 70)
-    print("Purpose: Physical implementation attempt")
-    print("Observable: 1 - 2|⟨χ|ψ⟩|² (quadratic, NOT linear!)")
-    print("Status: Works but gives wrong observable for ISDO")
-    try:
-        result_b = run_isdo_circuit_b(psi, chi)
-        print(f"Result:   {result_b:.6f}")
-        print(f"Expected (RFC): {expected_rfc:.6f}")
-        print(f"Expected (ISDO): {expected_isdo:.6f}")
-        print(f"Matches RFC:  {np.allclose(result_b, expected_rfc, atol=1e-6)}")
-        print(f"Matches ISDO: {np.allclose(result_b, expected_isdo, atol=1e-6)}")
-    except Exception as e:
-        print(f"Error: {e}")
     print()
     
     # Circuit B': Transition-based (CORRECT)
@@ -1427,12 +1391,10 @@ def test_different_states():
         rfc = 1 - 2 * np.abs(np.vdot(chi, psi))**2
         
         try:
-            measured_b = run_isdo_circuit_b(psi, chi)
             measured_b_prime = run_isdo_circuit_b_prime(psi, chi)
             
             print(f"\nTest {i}:")
             print(f"  True ISDO (Re⟨χ|ψ⟩):    {true_isdo:+.4f}")
-            print(f"  Circuit B (reflection): {measured_b:+.4f} (should be {rfc:+.4f})")
             print(f"  Circuit B' (transition):{measured_b_prime:+.4f} ✓")
         except Exception as e:
             print(f"\nTest {i}: Error - {e}")
@@ -2384,6 +2346,71 @@ class MemoryBank:
 
 ```py
 
+```
+
+## File: src/IQC/interference/circuit_backend_hadamard.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import StatePreparation  # ✅ Correct import
+from .base import InterferenceBackend
+
+# If you also want the conceptual/oracle version:
+class HadamardInterferenceBackend(InterferenceBackend):
+    """
+    CONCEPTUAL Hadamard-test using oracle state preparation.
+    
+    WARNING: This uses non-unitary StatePreparation and is NOT 
+    physically realizable. Use only for conceptual understanding.
+    For actual implementation, use TransitionInterferenceBackend.
+    
+    Computes Re⟨chi | psi⟩ in oracle model.
+    """
+    
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+        
+        # Normalize
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+        
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+        
+        qc = QuantumCircuit(1 + n)
+        anc = 0
+        data = list(range(1, 1 + n))
+        
+        # Hadamard on ancilla
+        qc.h(anc)
+        
+        # Controlled state preparation (ORACLE ASSUMPTION)
+        # When anc=0: prepare |psi⟩
+        state_prep_psi = StatePreparation(psi)
+        qc.append(state_prep_psi.control(1), [anc] + data)
+        
+        # Flip ancilla
+        qc.x(anc)
+        
+        # When anc=1 (after flip, so anc=0): prepare |chi⟩
+        state_prep_chi = StatePreparation(chi)
+        qc.append(state_prep_chi.control(1), [anc] + data)
+        
+        # Flip back
+        qc.x(anc)
+        
+        # Final Hadamard
+        qc.h(anc)
+        
+        # Get statevector and measure Z on ancilla
+        sv = Statevector.from_instruction(qc)
+        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
+        
+        return float(z_exp)
 ```
 
 ## File: src/IQC/interference/base.py
@@ -3906,71 +3933,6 @@ class Regime3CTrainer:
 
 ```py
 
-```
-
-## File: Archive_src/IQC/interference/circuit_backend_hadamard.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import StatePreparation  # ✅ Correct import
-from .base import InterferenceBackend
-
-# If you also want the conceptual/oracle version:
-class HadamardInterferenceBackend(InterferenceBackend):
-    """
-    CONCEPTUAL Hadamard-test using oracle state preparation.
-    
-    WARNING: This uses non-unitary StatePreparation and is NOT 
-    physically realizable. Use only for conceptual understanding.
-    For actual implementation, use TransitionInterferenceBackend.
-    
-    Computes Re⟨chi | psi⟩ in oracle model.
-    """
-    
-    def score(self, chi, psi) -> float:
-        chi = np.asarray(chi, dtype=np.complex128)
-        psi = np.asarray(psi, dtype=np.complex128)
-        
-        # Normalize
-        chi = chi / np.linalg.norm(chi)
-        psi = psi / np.linalg.norm(psi)
-        
-        assert chi.shape == psi.shape
-        n = int(np.log2(len(psi)))
-        assert 2**n == len(psi)
-        
-        qc = QuantumCircuit(1 + n)
-        anc = 0
-        data = list(range(1, 1 + n))
-        
-        # Hadamard on ancilla
-        qc.h(anc)
-        
-        # Controlled state preparation (ORACLE ASSUMPTION)
-        # When anc=0: prepare |psi⟩
-        state_prep_psi = StatePreparation(psi)
-        qc.append(state_prep_psi.control(1), [anc] + data)
-        
-        # Flip ancilla
-        qc.x(anc)
-        
-        # When anc=1 (after flip, so anc=0): prepare |chi⟩
-        state_prep_chi = StatePreparation(chi)
-        qc.append(state_prep_chi.control(1), [anc] + data)
-        
-        # Flip back
-        qc.x(anc)
-        
-        # Final Hadamard
-        qc.h(anc)
-        
-        # Get statevector and measure Z on ancilla
-        sv = Statevector.from_instruction(qc)
-        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
-        
-        return float(z_exp)
 ```
 
 ## File: Archive_src/IQC/interference/__init__.py
