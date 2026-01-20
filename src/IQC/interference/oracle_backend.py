@@ -5,7 +5,7 @@ from qiskit.circuit.library import StatePreparation  # ✅ Correct import
 from .base import InterferenceBackend
 
 # If you also want the conceptual/oracle version:
-class Oracle_Backend(InterferenceBackend):
+class OracleBackend(InterferenceBackend):
     """
     CONCEPTUAL Hadamard-test using oracle state preparation.
     

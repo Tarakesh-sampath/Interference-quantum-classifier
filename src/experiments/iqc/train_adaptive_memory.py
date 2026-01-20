@@ -8,8 +8,8 @@ from src.utils.seed import set_seed
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
-from src.IQC.interference.ExactBackend import ExactBackend
-from src.IQC.interference.OracleBackend import OracleBackend
+from src.IQC.interference.exact_backend import ExactBackend
+from src.IQC.interference.oracle_backend import OracleBackend
 
 from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
 from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
