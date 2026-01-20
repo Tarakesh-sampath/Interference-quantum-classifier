@@ -32,46 +32,24 @@ measurement-free-quantum-classifier/
                 __init__.py
                 isdo_K_sweep/
                     evaluate_isdo_k_sweep.py
-                    old_evaluate_interference_k4.py
                     calculate_isdo_k_sweep.py
                     __init__.py
                 isdo_circuit_test/
                     test_isdo_circuits_v2.py
-                    test_isdo_circuits_v1.py
                     __init__.py
                 circuits/
-                    circuit_a_controlled_state.py
                     circuit_b_prime_transition.py
                     __init__.py
-        archive/
-            __init__.py
-            swap_test/
-                swap_test_classifier.py
-                evaluate_swap_test_batch.py
-                __init__.py
-            statevector_similarity/
-                compute_class_states.py
-                evaluate_statevector_similarity.py
-                __init__.py
-            rfc/
-                reflection_classifier.py
-                __init__.py
         classical/
             cnn.py
             __init__.py
         experiments/
             __init__.py
             iqc/
-                run_regime3c_v1.py
-                run_regime3b.py
-                verify_isdo_bprime_backend.py
-                verify_hadamard_backend.py
-                run_regime3a.py
                 run_regime2.py
                 verify_transition_backend.py
                 run_regime3c_consolidation.py
                 run_regime3c_v2.py
-                verify_isdo_bprime_v2_backend.py
                 __init__.py
         IQC/
             __init__.py
@@ -87,7 +65,6 @@ measurement-free-quantum-classifier/
                 regime3c_trainer_v2.py
                 regime3a_trainer.py
                 metrics.py
-                regime3c_trainer_v1.py
                 __init__.py
             observable/
                 isdo_score.py
@@ -96,20 +73,61 @@ measurement-free-quantum-classifier/
                 memory_bank.py
                 __init__.py
             interference/
-                circuit_backend_hadamard.py
                 base.py
-                circuit_backend_isdo_bprime.py
-                circuit_backend_isdo_bprime_v2.py
-                circuit_backend.py
                 circuit_backend_transition.py
                 math_backend.py
                 __init__.py
             inference/
                 regime3b_classifier.py
-                regime3a_classifier.py
                 __init__.py
             encoding/
                 embedding_to_state.py
+                __init__.py
+    Archive_src/
+        __init__.py
+        swap_test/
+            swap_test_classifier.py
+            evaluate_swap_test_batch.py
+            __init__.py
+        quantum/
+            __init__.py
+            isdo/
+                __init__.py
+                isdo_K_sweep/
+                    old_evaluate_interference_k4.py
+                    __init__.py
+                isdo_circuit_test/
+                    test_isdo_circuits_v1.py
+                    __init__.py
+                circuit/
+                    circuit_a_controlled_state.py
+                    __init__.py
+        statevector_similarity/
+            compute_class_states.py
+            evaluate_statevector_similarity.py
+            __init__.py
+        rfc/
+            reflection_classifier.py
+            __init__.py
+        expriments/
+            __init__.py
+            iqc/
+                run_regime3c_v1.py
+                run_regime3b.py
+                verify_isdo_bprime_backend.py
+                verify_hadamard_backend.py
+                run_regime3a.py
+                __init__.py
+        IQC/
+            __init__.py
+            training/
+                regime3c_trainer_v1.py
+                __init__.py
+            interference/
+                circuit_backend_hadamard.py
+                __init__.py
+            inference/
+                regime3a_classifier.py
                 __init__.py
     results/
         artifacts/
@@ -1183,137 +1201,6 @@ plt.grid(True)
 plt.savefig(os.path.join(PATHS["figures"], "isdo_k_sweep.png"))
 ```
 
-## File: src/quantum/isdo/isdo_K_sweep/old_evaluate_interference_k4.py
-
-```py
-import os
-import numpy as np
-from tqdm import tqdm
-
-from qiskit.quantum_info import Statevector
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-CLASS_DIR = PATHS["class_prototypes"]
-EMBED_DIR = PATHS["embeddings"] 
-
-K = int(PATHS["class_count"]["K"])
-INDEX_DIM = K
-DATA_DIM = 32
-
-
-# ----------------------------
-# Helper
-# ----------------------------
-def to_quantum_state(x):
-    x = np.asarray(x, dtype=np.float64).reshape(-1)
-    x = x / np.sqrt(np.sum(x ** 2))
-    return x
-
-
-# ----------------------------
-# Load prototypes
-# ----------------------------
-def load_class_superposition(cls):
-    protos = []
-    for k in range(1,K):
-        p = np.load(os.path.join(CLASS_DIR, f"K{cls}/class{cls}_proto{k}.npy"))
-        protos.append(p)
-
-    # Build joint state |k> |phi_k>
-    joint = np.zeros(INDEX_DIM * DATA_DIM, dtype=np.float64)
-
-    for k, proto in enumerate(protos):
-        joint[k * DATA_DIM:(k + 1) * DATA_DIM] = proto
-
-    joint = joint / np.sqrt(K)  # superposition normalization
-    joint = to_quantum_state(joint)
-
-    return Statevector(joint)
-
-
-# ----------------------------
-# Load class states
-# ----------------------------
-Phi0 = load_class_superposition(0)
-Phi1 = load_class_superposition(1)
-
-
-# ----------------------------
-# Load data
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-
-test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-X = X[test_idx]
-y = y[test_idx]
-    
-N = len(X)
-correct = 0
-
-print(f"\n🔬 Evaluating Phase B (K={K}) on {N} samples\n")
-
-# ----------------------------
-# Evaluation
-# ----------------------------
-for i in tqdm(range(N)):
-    psi = to_quantum_state(X[i])
-
-    # Lift test state into joint space
-    joint_test = np.zeros(INDEX_DIM * DATA_DIM, dtype=np.float64)
-    for k in range(K):
-        joint_test[k * DATA_DIM:(k + 1) * DATA_DIM] = psi
-
-    joint_test = to_quantum_state(joint_test)
-    Psi = Statevector(joint_test)
-
-    F0 = abs(Psi.inner(Phi0)) ** 2
-    F1 = abs(Psi.inner(Phi1)) ** 2
-
-    pred = 0 if F0 > F1 else 1
-    if pred == y[i]:
-        correct += 1
-
-accuracy = correct / N
-
-print("\n==============================")
-print("Phase B: Interference-Based Measurement-Free Classifier")
-print(f"Prototypes per class: {K}")
-print(f"Samples: {N}")
-print(f"Accuracy: {accuracy:.4f}")
-print("==============================\n")
-
-
-## output 
-"""
-🌱 Global seed set to 42
-
-🔬 Evaluating Phase B (K=5) on 1500 samples
-
-100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 35004.26it/s]
-
-==============================
-Phase B: Interference-Based Measurement-Free Classifier
-Prototypes per class: 5
-Samples: 1500
-Accuracy: 0.8840
-==============================
-"""
-```
-
 ## File: src/quantum/isdo/isdo_K_sweep/calculate_isdo_k_sweep.py
 
 ```py
@@ -1556,98 +1443,10 @@ if __name__ == "__main__":
     test_different_states()
 ```
 
-## File: src/quantum/isdo/isdo_circuit_test/test_isdo_circuits_v1.py
-
-```py
-import numpy as np
-
-from src.quantum.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
-from src.archive.rfc.reflection_classifier import run_isdo_circuit_b
-from src.utils.common import build_chi_state
-
-
-# Dummy normalized vectors for sanity test
-psi = np.random.randn(32)
-psi /= np.linalg.norm(psi)
-
-phi0 = [np.random.randn(32) for _ in range(3)]
-phi1 = [np.random.randn(32) for _ in range(3)]
-phi0 = [p / np.linalg.norm(p) for p in phi0]
-phi1 = [p / np.linalg.norm(p) for p in phi1]
-
-chi = build_chi_state(phi0, phi1)
-
-za = run_isdo_circuit_a(psi, chi)
-zb = run_isdo_circuit_b(psi, chi)
-
-print("Circuit A ⟨Z⟩:", za)
-print("Circuit B ⟨Z⟩:", zb)
-print("Difference:", abs(za - zb))
-
-```
-
 ## File: src/quantum/isdo/isdo_circuit_test/__init__.py
 
 ```py
 
-```
-
-## File: src/quantum/isdo/circuits/circuit_a_controlled_state.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import StatePreparation
-
-from src.utils.common import load_statevector
-
-
-def build_isdo_circuit_a(psi, chi):
-    """
-    ISDO Circuit A: Controlled state preparation
-    """
-    n = int(np.log2(len(psi)))
-    qc = QuantumCircuit(1 + n, 1)
-
-    anc = 0
-    data = list(range(1, n + 1))
-
-    # Hadamard on ancilla
-    qc.h(anc)
-
-    # Controlled |psi>
-    state_prep_psi = StatePreparation(psi)
-    qc.append(state_prep_psi.control(1), [anc] + data)
-
-    # Flip ancilla
-    qc.x(anc)
-
-    # Controlled |chi>
-    state_prep_chi = StatePreparation(chi)
-    qc.append(state_prep_chi.control(1), [anc] + data)
-
-    # Undo flip
-    qc.x(anc)
-
-    # Interference
-    qc.h(anc)
-
-    # Measure ancilla
-    qc.measure(anc, 0)
-
-    return qc
-
-
-def run_isdo_circuit_a(psi, chi):
-    """
-    Exact (statevector) evaluation of ⟨Z⟩
-    """
-    qc = build_isdo_circuit_a(psi, chi)
-    qc_no_meas = qc.remove_final_measurements(inplace=False)
-    sv = Statevector.from_instruction(qc_no_meas)
-    z_exp = sv.expectation_value(Pauli('Z'), [0]).real
-    return z_exp
 ```
 
 ## File: src/quantum/isdo/circuits/circuit_b_prime_transition.py
@@ -1746,549 +1545,6 @@ def verify_isdo_b_prime(psi, chi):
 
 ```
 
-## File: src/archive/__init__.py
-
-```py
-
-```
-
-## File: src/archive/swap_test/swap_test_classifier.py
-
-```py
-import os
-import numpy as np
-
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector
-from qiskit_aer import AerSimulator
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-BASE_ROOT, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-# ----------------------------
-# Load vectors
-# ----------------------------
-class_state_0 = np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
-class_state_1 = np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
-
-# sanity check
-assert abs(np.linalg.norm(class_state_0) - 1.0) < 1e-6
-assert abs(np.linalg.norm(class_state_1) - 1.0) < 1e-6
-
-# ----------------------------
-# Example test embedding
-# (later we loop over dataset)
-# ----------------------------
-test_embedding = np.load(
-    os.path.join(EMBED_DIR, "val_embeddings.npy")
-)[0].astype(np.float64)
-
-test_embedding = test_embedding / np.linalg.norm(test_embedding)
-
-print("test_embedding.shape", test_embedding.shape)
-print("class_state_0.shape", class_state_0.shape)
-print("class_state_1.shape", class_state_1.shape)
-
-# expected class 
-expected_class = np.load(
-    os.path.join(EMBED_DIR, "val_labels.npy")
-)[0].astype(np.float64)
-
-print("expected_class", expected_class)
-# ----------------------------
-# SWAP test function
-# ----------------------------
-def swap_test_fidelity(state_a, state_b, shots=2048):
-    """
-    Estimate |<a|b>|^2 using SWAP test
-    """
-
-    n_qubits = int(np.log2(len(state_a)))
-    assert 2 ** n_qubits == len(state_a)
-
-    qc = QuantumCircuit(1 + 2 * n_qubits, 1)
-
-    anc = 0
-    reg_a = list(range(1, 1 + n_qubits))
-    reg_b = list(range(1 + n_qubits, 1 + 2 * n_qubits))
-
-    # Initialize states
-    qc.initialize(state_a, reg_a)
-    qc.initialize(state_b, reg_b)
-
-    # Hadamard on ancilla
-    qc.h(anc)
-
-    # Controlled SWAPs
-    for qa, qb in zip(reg_a, reg_b):
-        qc.cswap(anc, qa, qb)
-
-    # Hadamard again
-    qc.h(anc)
-
-    # Measure ancilla
-    qc.measure(anc, 0)
-    qc.draw("mpl").savefig(os.path.join(PATHS["figures"], "swap_test_circuit.png"))
-
-    backend = AerSimulator()
-    job = backend.run(qc, shots=shots)
-    counts = job.result().get_counts()
-
-    p0 = counts.get("0", 0) / shots
-    fidelity = 2 * p0 - 1
-
-    return fidelity, counts
-
-
-# ----------------------------
-# Run SWAP test for both classes
-# ----------------------------
-F0, counts0 = swap_test_fidelity(test_embedding, class_state_0)
-F1, counts1 = swap_test_fidelity(test_embedding, class_state_1)
-
-print("Fidelity with class 0 (Benign):", F0)
-print("Fidelity with class 1 (Malignant):", F1)
-
-predicted_class = 0 if F0 > F1 else 1
-print("\nPredicted class:", predicted_class)
-
-## output
-"""
-🌱 Global seed set to 42
-test_embedding.shape (32,)
-class_state_0.shape (32,)
-class_state_1.shape (32,)
-expected_class 1.0
-Fidelity with class 0 (Benign): 0.6318359375
-Fidelity with class 1 (Malignant): 0.876953125
-
-Predicted class: 1
-"""
-
-```
-
-## File: src/archive/swap_test/evaluate_swap_test_batch.py
-
-```py
-import os
-import numpy as np
-from tqdm import tqdm
-
-from qiskit import QuantumCircuit
-from qiskit_aer import AerSimulator
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-BASE_ROOT, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-# ----------------------------
-# Quantum-safe conversion
-# ----------------------------
-def to_quantum_state(x):
-    x = np.asarray(x, dtype=np.float64).reshape(-1)
-    n = len(x)
-    if not (n & (n - 1) == 0):
-        raise ValueError(f"State length {n} is not power of 2")
-    x = x / np.sqrt(np.sum(x ** 2))
-    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
-    return x
-
-
-# ----------------------------
-# Load class states
-# ----------------------------
-class_state_0 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
-)
-class_state_1 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
-)
-
-# ----------------------------
-# Load test embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-
-# ----------------------------
-# Evaluation subset
-# ----------------------------
-N_SAMPLES = 5000
-SHOTS = 1024
-
-#X = X[:N_SAMPLES]
-#y = y[:N_SAMPLES]
-
-# ----------------------------
-# SWAP test fidelity
-# ----------------------------
-def swap_test_fidelity(state_a, state_b, shots=1024):
-    n_qubits = int(np.log2(len(state_a)))
-    qc = QuantumCircuit(1 + 2 * n_qubits, 1)
-
-    anc = 0
-    reg_a = list(range(1, 1 + n_qubits))
-    reg_b = list(range(1 + n_qubits, 1 + 2 * n_qubits))
-
-    qc.initialize(state_a, reg_a)
-    qc.initialize(state_b, reg_b)
-
-    qc.h(anc)
-    for qa, qb in zip(reg_a, reg_b):
-        qc.cswap(anc, qa, qb)
-    qc.h(anc)
-
-    qc.measure(anc, 0)
-
-    backend = AerSimulator()
-    job = backend.run(qc, shots=shots)
-    counts = job.result().get_counts()
-
-    p0 = counts.get("0", 0) / shots
-    fidelity = 2 * p0 - 1
-    return fidelity
-
-
-# ----------------------------
-# Batch evaluation
-# ----------------------------
-correct = 0
-
-print(f"\n🔬 Evaluating SWAP-test classifier on {N_SAMPLES} samples\n")
-
-for i in tqdm(range(N_SAMPLES)):
-    x = to_quantum_state(X[i])
-
-    F0 = swap_test_fidelity(x, class_state_0, shots=SHOTS)
-    F1 = swap_test_fidelity(x, class_state_1, shots=SHOTS)
-
-    pred = 0 if F0 > F1 else 1
-    if pred == y[i]:
-        correct += 1
-
-accuracy = correct / N_SAMPLES
-
-print("\n==============================")
-print("Measurement-based Quantum SWAP Test")
-print(f"Samples: {N_SAMPLES}")
-print(f"Shots per test: {SHOTS}")
-print(f"Accuracy: {accuracy:.4f}")
-print("==============================\n")
-
-## output
-"""
-🌱 Global seed set to 42
-
-🔬 Evaluating SWAP-test classifier on 5000 samples
-
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 5000/5000 [03:46<00:00, 22.11it/s]
-
-==============================
-Measurement-based Quantum SWAP Test
-Samples: 5000
-Shots per test: 1024
-Accuracy: 0.8784
-==============================
-"""
-
-```
-
-## File: src/archive/swap_test/__init__.py
-
-```py
-
-```
-
-## File: src/archive/statevector_similarity/compute_class_states.py
-
-```py
-import os
-import json
-import numpy as np
-from sklearn.preprocessing import normalize
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-BASE_ROOT, PATHS = load_paths()
-
-EMBED_DIR = PATHS["embeddings"]
-SAVE_DIR = PATHS["embeddings"]
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-
-
-
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded embeddings:", X_train.shape)
-# ----------------------------
-# Compute class means
-# ----------------------------
-class_states = {}
-
-for cls in np.unique(y):
-    X_cls = X_train[y_train == cls]
-    #X_cls = X_cls.astype(np.float64)
-
-    # Mean in FP64
-    mean_vec = X_cls.mean(axis=0)
-
-    # Exact FP64 normalization
-    norm = np.sqrt(np.sum(mean_vec ** 2))
-    mean_vec = mean_vec / norm
-
-    # Sanity check (important)
-    assert np.isclose(np.sum(mean_vec ** 2), 1.0, atol=1e-12)
-
-    class_states[int(cls)] = mean_vec
-
-    print(
-        f"Class {cls}: "
-        f"samples = {len(X_cls)}, "
-        f"norm = {np.linalg.norm(mean_vec):.12f}"
-    )
-
-# ----------------------------
-# Save
-# ----------------------------
-np.save(os.path.join(SAVE_DIR, "class_state_0.npy"), class_states[0])
-np.save(os.path.join(SAVE_DIR, "class_state_1.npy"), class_states[1])
-
-# Optional: save metadata
-with open(os.path.join(SAVE_DIR, "class_states_meta.json"), "w") as f:
-    json.dump(
-        {
-            "embedding_dim": X.shape[1],
-            "classes": list(class_states.keys()),
-            "normalization": "l2",
-            "source": "mean_of_class_embeddings",
-        },
-        f,
-        indent=2,
-    )
-
-print("\n✅ Class states saved:")
-print(" - class_state_0.npy (Benign)")
-print(" - class_state_1.npy (Malignant)")
-
-```
-
-## File: src/archive/statevector_similarity/evaluate_statevector_similarity.py
-
-```py
-import os
-import numpy as np
-from tqdm import tqdm
-
-from qiskit.quantum_info import Statevector
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-
-# ----------------------------
-# Quantum-safe conversion
-# ----------------------------
-def to_quantum_state(x):
-    x = np.asarray(x, dtype=np.float64).reshape(-1)
-    n = len(x)
-    if not (n & (n - 1) == 0):
-        raise ValueError(f"State length {n} is not power of 2")
-    x = x / np.sqrt(np.sum(x ** 2))
-    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
-    return x
-
-
-# ----------------------------
-# Load class states
-# ----------------------------
-phi0 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
-)
-phi1 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
-)
-
-sv_phi0 = Statevector(phi0)
-sv_phi1 = Statevector(phi1)
-
-
-# ----------------------------
-# Load embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-X = X[test_idx]
-y = y[test_idx]
-
-N = len(X)
-correct = 0
-
-print(f"\n🔬 Evaluating measurement-free statevector classifier on {N} samples\n")
-
-for i in tqdm(range(N)):
-    psi = Statevector(to_quantum_state(X[i]))
-
-    F0 = abs(psi.inner(sv_phi0)) ** 2
-    F1 = abs(psi.inner(sv_phi1)) ** 2
-
-    pred = 0 if F0 > F1 else 1
-    if pred == y[i]:
-        correct += 1
-
-accuracy = correct / N
-
-print("\n==============================")
-print("Measurement-free (Statevector) Quantum Classifier")
-print(f"Samples: {N}")
-print(f"Accuracy: {accuracy:.4f}")
-print("==============================\n")
-
-## output
-"""
-🌱 Global seed set to 42
-
-🔬 Evaluating measurement-free statevector classifier on 1500 samples
-
-100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 29429.03it/s]
-
-==============================
-Measurement-free (Statevector) Quantum Classifier
-Samples: 1500
-Accuracy: 0.8827
-==============================
-"""
-```
-
-## File: src/archive/statevector_similarity/__init__.py
-
-```py
-
-```
-
-## File: src/archive/rfc/reflection_classifier.py
-
-```py
-# Reflection-Fidelity Classifier
-
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import StatePreparation, UnitaryGate
-from src.utils.common import load_statevector
-
-
-def reflection_operator(chi):
-    """
-    Build R_chi = I - 2|chi><chi|
-    """
-    dim = len(chi)
-    proj = np.outer(chi, chi.conj())
-    return np.eye(dim) - 2 * proj
-
-
-def build_isdo_circuit_b(psi, chi):
-    """
-    ISDO Circuit B: Phase kickback via reflection
-    """
-    n = int(np.log2(len(psi)))
-    qc = QuantumCircuit(1 + n, 1)
-
-    anc = 0
-    data = list(range(1, n + 1))
-
-    # Prepare |psi>
-    state_prep_psi = StatePreparation(psi)
-    qc.append(state_prep_psi, data)
-
-    # Hadamard ancilla
-    qc.h(anc)
-
-    # Controlled reflection
-    R = UnitaryGate(reflection_operator(chi), label="R_chi")
-    qc.append(R.control(1), [anc] + data)
-
-    # Interference
-    qc.h(anc)
-
-    # Measure ancilla
-    qc.measure(anc, 0)
-
-    return qc
-
-
-def run_isdo_circuit_b(psi, chi):
-    """
-    Exact ⟨Z⟩ extraction
-    """
-    qc = build_isdo_circuit_b(psi, chi)
-    qc_no_meas = qc.remove_final_measurements(inplace=False)
-    sv = Statevector.from_instruction(qc_no_meas)
-    z_exp = sv.expectation_value(Pauli('Z'), [0]).real
-    return z_exp
-```
-
-## File: src/archive/rfc/__init__.py
-
-```py
-
-```
-
 ## File: src/classical/cnn.py
 
 ```py
@@ -2356,426 +1612,6 @@ class PCamCNN(nn.Module):
 
 ```py
 
-```
-
-## File: src/experiments/iqc/run_regime3c_v1.py
-
-```py
-import os
-import numpy as np
-from collections import Counter
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-from src.IQC.states.class_state import ClassState
-from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.memory.memory_bank import MemoryBank
-from src.IQC.interference.math_backend import MathInterferenceBackend
-
-from src.IQC.training.regime3c_trainer_v1 import Regime3CTrainer
-from src.IQC.inference.regime3b_classifier import Regime3BClassifier
-import pickle
-
-
-# -------------------------------------------------
-# Reproducibility
-# -------------------------------------------------
-set_seed(42)
-
-
-# -------------------------------------------------
-# Load paths
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-os.makedirs(PATHS["artifacts"], exist_ok=True)
-
-# -------------------------------------------------
-# Load embeddings (TRAIN SPLIT)
-# -------------------------------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-
-# -------------------------------------------------
-# Prepare dataset (same as Regime 2 / 3-A / 3-B)
-# -------------------------------------------------
-dataset = [
-    (embedding_to_state(x), int(label))
-    for x, label in zip(X_train, y_train)
-]
-
-# shuffle (important for online + growth)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-
-# -------------------------------------------------
-# Initialize memory bank (M = 3)
-# -------------------------------------------------
-d = dataset[0][0].shape[0]
-
-class_states = []
-for _ in range(3):
-    v = np.random.randn(d)
-    v /= np.linalg.norm(v)
-    class_states.append(ClassState(v))
-    
-backend = MathInterferenceBackend()
-
-memory_bank = MemoryBank(
-    class_states=class_states,
-    backend=backend
-)
-
-
-print("Initial number of memories:", len(memory_bank.class_states))
-
-
-# -------------------------------------------------
-# Train Regime 3-C (percentile-based τ)
-# -------------------------------------------------
-trainer = Regime3CTrainer(
-    memory_bank=memory_bank,
-    eta=0.1,
-    percentile=5,       # τ = 5th percentile of margins
-    tau_abs = -0.121,
-    margin_window=500   # sliding window for stability
-)
-
-trainer.train(dataset)
-
-print("Training finished.")
-print("Number of memories after training:", len(memory_bank.class_states))
-print("Number of spawned memories:", trainer.num_spawns)
-print("Number of updates:", trainer.num_updates)
-
-
-# -------------------------------------------------
-# Evaluate using Regime 3-B inference
-# -------------------------------------------------
-classifier = Regime3BClassifier(memory_bank)
-
-correct = 0
-for psi, y in dataset:
-    if classifier.predict(psi) == y:
-        correct += 1
-
-acc_3c = correct / len(dataset)
-print("Regime 3-C accuracy (3-B inference):", acc_3c)
-
-
-# -------------------------------------------------
-# Optional diagnostics
-# -------------------------------------------------
-print("Final memory count:", len(memory_bank.class_states))
-
-with open(MEMORY_PATH, "wb") as f:
-    pickle.dump(memory_bank, f)
-
-print("Saved Regime 3-C memory bank.")
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Initial number of memories: 3
-Training finished.
-Number of memories after training: 3
-Number of spawned memories: 0
-Number of updates: 524
-Regime 3-C accuracy (3-B inference): 0.7948571428571428
-Final memory count: 3
-"""
-```
-
-## File: src/experiments/iqc/run_regime3b.py
-
-```py
-from src.IQC.inference.regime3b_classifier import Regime3BClassifier
-from src.IQC.memory.memory_bank import MemoryBank
-from src.IQC.states.class_state import ClassState
-from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.training.regime3a_trainer import Regime3ATrainer
-from src.IQC.interference.math_backend import MathInterferenceBackend
-
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-import os
-import numpy as np
-from collections import Counter
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings (TRAIN ONLY)
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-dataset = [
-        (embedding_to_state(x), int(label))
-        for x, label in zip(X_train, y_train)
-    ]
-
-# shuffle (important for online + growth)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-d = dataset[0][0].shape[0]
-
-class_states = []
-for _ in range(3):
-    v = np.random.randn(d)
-    v /= np.linalg.norm(v)
-    class_states.append(ClassState(v))
-
-backend = MathInterferenceBackend()
-
-memory_bank = MemoryBank(
-    class_states=class_states,
-    backend=backend
-)
-trainer = Regime3ATrainer(memory_bank, eta=0.1)
-acc = trainer.train(dataset)
-
-# now we train 3b 
-classifier = Regime3BClassifier(trainer.memory_bank)
-
-correct = 0
-for psi, y in dataset:
-    y_hat = classifier.predict(psi)
-    if y_hat == y:
-        correct += 1
-
-acc_3b = correct / len(dataset)
-print("Regime 3-B accuracy:", acc_3b)
-print("Memory usage:", Counter(trainer.history["winner_idx"]))
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Regime 3-B accuracy: 0.8342857142857143
-Memory usage: Counter({2: 1473, 0: 1243, 1: 784})
-"""
-```
-
-## File: src/experiments/iqc/verify_isdo_bprime_backend.py
-
-```py
-import numpy as np
-from scipy.stats import spearmanr
-
-from src.IQC.interference.math_backend import MathInterferenceBackend
-from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
-from src.IQC.interference.circuit_backend_isdo_bprime import ISDOBPrimeInterferenceBackend
-
-
-def random_state(n):
-    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
-    v /= np.linalg.norm(v)
-    return v
-
-
-def sign(x):
-    return 1 if x >= 0 else -1
-
-
-np.random.seed(0)
-
-math_backend = MathInterferenceBackend()
-ref_backend = TransitionInterferenceBackend()
-isdo_backend = ISDOBPrimeInterferenceBackend()
-
-n = 4
-num_tests = 100
-
-sign_agree = 0
-ref_vals = []
-isdo_vals = []
-
-for _ in range(num_tests):
-    chi = random_state(n)
-    psi = random_state(n)
-
-    s_ref = ref_backend.score(chi, psi)
-    s_isdo = isdo_backend.score(chi, psi)
-
-    ref_vals.append(s_ref)
-    isdo_vals.append(s_isdo)
-
-    if sign(s_ref) == sign(s_isdo):
-        sign_agree += 1
-
-rho, _ = spearmanr(ref_vals, isdo_vals)
-
-print("ISDO-B′ vs Transition backend")
-print("Sign agreement:", sign_agree, "/", num_tests)
-print("Spearman rank correlation:", rho)
-print("Mean |difference|:", np.mean(np.abs(np.array(ref_vals) - np.array(isdo_vals))))
-
-"""
-ISDO-B′ vs Transition backend
-Sign agreement: 51 / 100
-Spearman rank correlation: -0.029006900690069004
-Mean |difference|: 0.21415260812801665
-"""
-```
-
-## File: src/experiments/iqc/verify_hadamard_backend.py
-
-```py
-import numpy as np
-
-from src.IQC.interference.math_backend import MathInterferenceBackend
-from src.IQC.interference.circuit_backend_hadamard import HadamardInterferenceBackend
-
-
-def random_state(n):
-    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
-    v /= np.linalg.norm(v)
-    return v
-
-
-def sign(x):
-    return 1 if x >= 0 else -1
-
-
-np.random.seed(0)
-
-math_backend = MathInterferenceBackend()
-had_backend = HadamardInterferenceBackend()
-
-n = 3  # small, exact verification
-num_tests = 50
-
-sign_agree = 0
-vals = []
-
-for _ in range(num_tests):
-    chi = random_state(n)
-    psi = random_state(n)
-
-    s_math = math_backend.score(chi, psi)
-    s_had = had_backend.score(chi, psi)
-
-    vals.append((s_math, s_had))
-
-    if sign(s_math) == sign(s_had):
-        sign_agree += 1
-
-print("Sign agreement:", sign_agree, "/", num_tests)
-print("Mean abs error:", np.mean([abs(a - b) for a, b in vals]))
-
-## output
-"""
-Sign agreement: 50 / 50
-Mean abs error: 6.399047958183246e-16
-"""
-```
-
-## File: src/experiments/iqc/run_regime3a.py
-
-```py
-from src.IQC.training.regime3a_trainer import Regime3ATrainer
-from src.IQC.memory.memory_bank import MemoryBank
-from src.IQC.states.class_state import ClassState
-from src.IQC.encoding.embedding_to_state import embedding_to_state
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-import os
-import numpy as np
-from collections import Counter
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings (TRAIN ONLY)
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-dataset = [
-        (embedding_to_state(x), int(label))
-        for x, label in zip(X_train, y_train)
-    ]
-
-
-d = dataset[0][0].shape[0]
-
-class_states = []
-for _ in range(3):
-    v = np.random.randn(d)
-    v /= np.linalg.norm(v)
-    class_states.append(ClassState(v))
-
-memory_bank = MemoryBank(class_states)
-trainer = Regime3ATrainer(memory_bank, eta=0.1)
-
-acc = trainer.train(dataset)
-
-print("Regime 3-A accuracy:", acc)
-print("Total updates:", trainer.num_updates)
-print(Counter(trainer.history["winner_idx"]))
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Regime 3-A accuracy: 0.8328571428571429
-Total updates: 585
-Counter({0: 1266, 2: 1238, 1: 996})
-"""
 ```
 
 ## File: src/experiments/iqc/run_regime2.py
@@ -3165,68 +2001,6 @@ Saved Regime 3-C memory bank.
 """
 ```
 
-## File: src/experiments/iqc/verify_isdo_bprime_v2_backend.py
-
-```py
-import numpy as np
-from scipy.stats import spearmanr
-
-from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
-from src.IQC.interference.circuit_backend_isdo_bprime_v2 import (
-    ISDOBPrimeV2InterferenceBackend
-)
-
-
-def random_state(n):
-    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
-    v /= np.linalg.norm(v)
-    return v
-
-
-def sign(x):
-    return 1 if x >= 0 else -1
-
-
-np.random.seed(0)
-
-ref_backend = TransitionInterferenceBackend()
-isdo_v2_backend = ISDOBPrimeV2InterferenceBackend()
-
-n = 4
-num_tests = 100
-
-sign_agree = 0
-ref_vals = []
-isdo_vals = []
-
-for _ in range(num_tests):
-    chi = random_state(n)
-    psi = random_state(n)
-
-    s_ref = ref_backend.score(chi, psi)
-    s_isdo = isdo_v2_backend.score(chi, psi)
-
-    ref_vals.append(s_ref)
-    isdo_vals.append(s_isdo)
-
-    if sign(s_ref) == sign(s_isdo):
-        sign_agree += 1
-
-rho, _ = spearmanr(ref_vals, isdo_vals)
-
-print("ISDO-B′ v2 vs Transition backend")
-print("Sign agreement:", sign_agree, "/", num_tests)
-print("Spearman rank correlation:", rho)
-print("Mean |difference|:", np.mean(np.abs(np.array(ref_vals) - np.array(isdo_vals))))
-
-"""
-ISDO-B′ v2 vs Transition backend
-Sign agreement: 50 / 100
-Spearman rank correlation: 0.078019801980198
-Mean |difference|: 0.8633964573421116
-"""
-```
-
 ## File: src/experiments/iqc/__init__.py
 
 ```py
@@ -3556,101 +2330,6 @@ def summarize_training(history: dict):
 
 ```
 
-## File: src/IQC/training/regime3c_trainer_v1.py
-
-```py
-import numpy as np
-from collections import deque
-
-from ..learning.regime2_update import regime2_update
-
-
-class Regime3CTrainer:
-    """
-    Regime 3-C: Dynamic Memory Growth with Percentile-based τ
-    """
-
-    def __init__(
-        self,
-        memory_bank,
-        eta=0.1,
-        percentile=5,
-        tau_abs = -0.4,
-        margin_window=500,
-    ):
-        self.memory_bank = memory_bank
-        self.eta = eta
-        self.percentile = percentile
-        self.tau_abs = tau_abs
-
-        # store recent margins
-        self.margins = deque(maxlen=margin_window)
-
-        self.num_updates = 0
-        self.num_spawns = 0
-
-        self.history = {
-            "margin": [],
-            "spawned": [],
-            "num_memories": [],
-        }
-
-    def aggregated_score(self, psi):
-        scores = np.array([
-            float(np.real(np.vdot(cs.vector, psi)))
-            for cs in self.memory_bank.class_states
-        ])
-        return scores.mean()  # uniform weights
-
-    def step(self, psi, y):
-        S = self.aggregated_score(psi)
-        margin = y * S
-
-        # compute τ only after we have some history
-        if len(self.margins) >= 20:
-            tau = np.percentile(self.margins, self.percentile)
-        else:
-            tau = -np.inf  # disable spawning early
-
-        spawned = False
-
-        if (margin < tau) and (margin < self.tau_abs):
-            # 🔥 spawn new memory
-            chi_new = y * psi
-            chi_new = chi_new / np.linalg.norm(chi_new)
-            self.memory_bank.add_memory(chi_new)
-            self.num_spawns += 1
-            spawned = True
-
-        elif margin < 0:
-            # update winning memory
-            idx, _ = self.memory_bank.winner(psi)
-            cs = self.memory_bank.class_states[idx]
-
-            chi_new, updated = regime2_update(
-                cs.vector, psi, y, self.eta
-            )
-
-            if updated:
-                cs.vector = chi_new
-                self.num_updates += 1
-
-        # logging
-        self.margins.append(margin)
-        self.history["margin"].append(margin)
-        self.history["spawned"].append(spawned)
-        self.history["num_memories"].append(
-            len(self.memory_bank.class_states)
-        )
-
-        return margin, spawned
-
-    def train(self, dataset):
-        for psi, y in dataset:
-            self.step(psi, y)
-
-```
-
 ## File: src/IQC/training/__init__.py
 
 ```py
@@ -3707,71 +2386,6 @@ class MemoryBank:
 
 ```
 
-## File: src/IQC/interference/circuit_backend_hadamard.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import StatePreparation  # ✅ Correct import
-from .base import InterferenceBackend
-
-# If you also want the conceptual/oracle version:
-class HadamardInterferenceBackend(InterferenceBackend):
-    """
-    CONCEPTUAL Hadamard-test using oracle state preparation.
-    
-    WARNING: This uses non-unitary StatePreparation and is NOT 
-    physically realizable. Use only for conceptual understanding.
-    For actual implementation, use TransitionInterferenceBackend.
-    
-    Computes Re⟨chi | psi⟩ in oracle model.
-    """
-    
-    def score(self, chi, psi) -> float:
-        chi = np.asarray(chi, dtype=np.complex128)
-        psi = np.asarray(psi, dtype=np.complex128)
-        
-        # Normalize
-        chi = chi / np.linalg.norm(chi)
-        psi = psi / np.linalg.norm(psi)
-        
-        assert chi.shape == psi.shape
-        n = int(np.log2(len(psi)))
-        assert 2**n == len(psi)
-        
-        qc = QuantumCircuit(1 + n)
-        anc = 0
-        data = list(range(1, 1 + n))
-        
-        # Hadamard on ancilla
-        qc.h(anc)
-        
-        # Controlled state preparation (ORACLE ASSUMPTION)
-        # When anc=0: prepare |psi⟩
-        state_prep_psi = StatePreparation(psi)
-        qc.append(state_prep_psi.control(1), [anc] + data)
-        
-        # Flip ancilla
-        qc.x(anc)
-        
-        # When anc=1 (after flip, so anc=0): prepare |chi⟩
-        state_prep_chi = StatePreparation(chi)
-        qc.append(state_prep_chi.control(1), [anc] + data)
-        
-        # Flip back
-        qc.x(anc)
-        
-        # Final Hadamard
-        qc.h(anc)
-        
-        # Get statevector and measure Z on ancilla
-        sv = Statevector.from_instruction(qc)
-        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
-        
-        return float(z_exp)
-```
-
 ## File: src/IQC/interference/base.py
 
 ```py
@@ -3788,215 +2402,6 @@ class InterferenceBackend(ABC):
         Return Re⟨chi | psi⟩ as a real scalar.
         """
         pass
-
-```
-
-## File: src/IQC/interference/circuit_backend_isdo_bprime.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import UnitaryGate
-
-from .base import InterferenceBackend
-
-
-class ISDOBPrimeInterferenceBackend(InterferenceBackend):
-    """
-    ISDO-B′ interference backend.
-
-    Implements the observable:
-        S_ISDO(psi; chi) = <psi | U_chi^† Z^{⊗n} U_chi | psi>
-
-    Properties:
-    - No controlled unitaries
-    - Fixed measurement (Z^{⊗n})
-    - chi appears only as a basis change (U_chi)
-    - Hardware-friendly compared to Hadamard test
-    """
-
-    def __init__(self):
-        # Optional cache for U_chi to avoid recomputation
-        self._cache = {}
-
-    @staticmethod
-    def _statevector_to_unitary(vec):
-        """
-        Build a unitary U such that U |0...0> = |vec>.
-        Completed via Gram–Schmidt to a full unitary.
-        """
-        vec = np.asarray(vec, dtype=np.complex128)
-        vec = vec / np.linalg.norm(vec)
-        dim = len(vec)
-
-        U = np.zeros((dim, dim), dtype=np.complex128)
-        U[:, 0] = vec
-
-        for i in range(1, dim):
-            v = np.zeros(dim, dtype=np.complex128)
-            v[i] = 1.0
-
-            for j in range(i):
-                v -= np.vdot(U[:, j], v) * U[:, j]
-
-            nrm = np.linalg.norm(v)
-            if nrm < 1e-12:
-                v = np.random.randn(dim) + 1j * np.random.randn(dim)
-                for j in range(i):
-                    v -= np.vdot(U[:, j], v) * U[:, j]
-                v /= np.linalg.norm(v)
-            else:
-                v /= nrm
-
-            U[:, i] = v
-
-        return U
-
-    def _get_U_chi(self, chi):
-        """
-        Cached construction of U_chi.
-        """
-        key = chi.tobytes()
-        if key not in self._cache:
-            U = self._statevector_to_unitary(chi)
-            self._cache[key] = UnitaryGate(U)
-        return self._cache[key]
-
-    def score(self, chi, psi) -> float:
-        chi = np.asarray(chi, dtype=np.complex128)
-        psi = np.asarray(psi, dtype=np.complex128)
-
-        chi = chi / np.linalg.norm(chi)
-        psi = psi / np.linalg.norm(psi)
-
-        assert chi.shape == psi.shape
-        n = int(np.log2(len(psi)))
-        assert 2**n == len(psi)
-
-        qc = QuantumCircuit(n)
-
-        # Prepare |psi>
-        qc.initialize(psi, list(range(n)))
-
-        # Apply U_chi
-        U_chi = self._get_U_chi(chi)
-        qc.append(U_chi, list(range(n)))
-
-        # Measure Z^{⊗n} expectation exactly (statevector)
-        sv = Statevector.from_instruction(qc)
-        Z_all = Pauli("Z" + "I" * (n - 1))
-
-        exp_val = sv.expectation_value(Z_all).real
-        return float(exp_val)
-
-```
-
-## File: src/IQC/interference/circuit_backend_isdo_bprime_v2.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector
-from qiskit.circuit.library import UnitaryGate
-
-from .base import InterferenceBackend
-
-
-class ISDOBPrimeV2InterferenceBackend(InterferenceBackend):
-    """
-    ISDO-B′ v2: Contrastive projector observable.
-
-    Implements:
-        S = <psi | U_chi^† (|0><0| - Pi_perp) U_chi | psi>
-          = 2 * |<chi|psi>|^2 - 1     (with alpha = 1)
-
-    Measurement procedure:
-      1) Prepare |psi>
-      2) Apply U_chi
-      3) Measure probability p0 of |0...0>
-      4) Return S = 2*p0 - 1
-
-    No ancilla. No controlled unitaries.
-    """
-
-    def __init__(self):
-        self._cache = {}
-
-    @staticmethod
-    def _statevector_to_unitary(vec):
-        """
-        Build a unitary U such that U |0...0> = |vec>.
-        Completed via Gram–Schmidt to a full unitary.
-        """
-        vec = np.asarray(vec, dtype=np.complex128)
-        vec = vec / np.linalg.norm(vec)
-        dim = len(vec)
-
-        U = np.zeros((dim, dim), dtype=np.complex128)
-        U[:, 0] = vec
-
-        for i in range(1, dim):
-            v = np.zeros(dim, dtype=np.complex128)
-            v[i] = 1.0
-
-            for j in range(i):
-                v -= np.vdot(U[:, j], v) * U[:, j]
-
-            nrm = np.linalg.norm(v)
-            if nrm < 1e-12:
-                v = np.random.randn(dim) + 1j * np.random.randn(dim)
-                for j in range(i):
-                    v -= np.vdot(U[:, j], v) * U[:, j]
-                v /= np.linalg.norm(v)
-            else:
-                v /= nrm
-
-            U[:, i] = v
-
-        return U
-
-    def _get_U_chi(self, chi):
-        key = chi.tobytes()
-        if key not in self._cache:
-            U = self._statevector_to_unitary(chi)
-            self._cache[key] = UnitaryGate(U)
-        return self._cache[key]
-
-    def score(self, chi, psi) -> float:
-        chi = np.asarray(chi, dtype=np.complex128)
-        psi = np.asarray(psi, dtype=np.complex128)
-
-        chi = chi / np.linalg.norm(chi)
-        psi = psi / np.linalg.norm(psi)
-
-        assert chi.shape == psi.shape
-        n = int(np.log2(len(psi)))
-        assert 2**n == len(psi)
-
-        qc = QuantumCircuit(n)
-
-        # Prepare |psi>
-        qc.initialize(psi, list(range(n)))
-
-        # Rotate basis with U_chi
-        U_chi = self._get_U_chi(chi)
-        qc.append(U_chi, list(range(n)))
-
-        # Exact statevector
-        sv = Statevector.from_instruction(qc)
-
-        # Probability of |0...0>
-        p0 = abs(sv.data[0]) ** 2
-
-        # Contrastive projector score (alpha = 1)
-        return float(2.0 * p0 - 1.0)
-
-```
-
-## File: src/IQC/interference/circuit_backend.py
-
-```py
 
 ```
 
@@ -4142,19 +2547,6 @@ class Regime3BClassifier:
 
 ```
 
-## File: src/IQC/inference/regime3a_classifier.py
-
-```py
-class Regime3AClassifier:
-    def __init__(self, memory_bank):
-        self.memory_bank = memory_bank
-
-    def predict(self, psi):
-        idx, score = self.memory_bank.winner(psi)
-        return 1 if score >= 0 else -1
-
-```
-
 ## File: src/IQC/inference/__init__.py
 
 ```py
@@ -4180,6 +2572,1427 @@ def embedding_to_state(x: np.ndarray) -> np.ndarray:
 ```
 
 ## File: src/IQC/encoding/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/swap_test/swap_test_classifier.py
+
+```py
+import os
+import numpy as np
+
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector
+from qiskit_aer import AerSimulator
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+BASE_ROOT, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+# ----------------------------
+# Load vectors
+# ----------------------------
+class_state_0 = np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
+class_state_1 = np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
+
+# sanity check
+assert abs(np.linalg.norm(class_state_0) - 1.0) < 1e-6
+assert abs(np.linalg.norm(class_state_1) - 1.0) < 1e-6
+
+# ----------------------------
+# Example test embedding
+# (later we loop over dataset)
+# ----------------------------
+test_embedding = np.load(
+    os.path.join(EMBED_DIR, "val_embeddings.npy")
+)[0].astype(np.float64)
+
+test_embedding = test_embedding / np.linalg.norm(test_embedding)
+
+print("test_embedding.shape", test_embedding.shape)
+print("class_state_0.shape", class_state_0.shape)
+print("class_state_1.shape", class_state_1.shape)
+
+# expected class 
+expected_class = np.load(
+    os.path.join(EMBED_DIR, "val_labels.npy")
+)[0].astype(np.float64)
+
+print("expected_class", expected_class)
+# ----------------------------
+# SWAP test function
+# ----------------------------
+def swap_test_fidelity(state_a, state_b, shots=2048):
+    """
+    Estimate |<a|b>|^2 using SWAP test
+    """
+
+    n_qubits = int(np.log2(len(state_a)))
+    assert 2 ** n_qubits == len(state_a)
+
+    qc = QuantumCircuit(1 + 2 * n_qubits, 1)
+
+    anc = 0
+    reg_a = list(range(1, 1 + n_qubits))
+    reg_b = list(range(1 + n_qubits, 1 + 2 * n_qubits))
+
+    # Initialize states
+    qc.initialize(state_a, reg_a)
+    qc.initialize(state_b, reg_b)
+
+    # Hadamard on ancilla
+    qc.h(anc)
+
+    # Controlled SWAPs
+    for qa, qb in zip(reg_a, reg_b):
+        qc.cswap(anc, qa, qb)
+
+    # Hadamard again
+    qc.h(anc)
+
+    # Measure ancilla
+    qc.measure(anc, 0)
+    qc.draw("mpl").savefig(os.path.join(PATHS["figures"], "swap_test_circuit.png"))
+
+    backend = AerSimulator()
+    job = backend.run(qc, shots=shots)
+    counts = job.result().get_counts()
+
+    p0 = counts.get("0", 0) / shots
+    fidelity = 2 * p0 - 1
+
+    return fidelity, counts
+
+
+# ----------------------------
+# Run SWAP test for both classes
+# ----------------------------
+F0, counts0 = swap_test_fidelity(test_embedding, class_state_0)
+F1, counts1 = swap_test_fidelity(test_embedding, class_state_1)
+
+print("Fidelity with class 0 (Benign):", F0)
+print("Fidelity with class 1 (Malignant):", F1)
+
+predicted_class = 0 if F0 > F1 else 1
+print("\nPredicted class:", predicted_class)
+
+## output
+"""
+🌱 Global seed set to 42
+test_embedding.shape (32,)
+class_state_0.shape (32,)
+class_state_1.shape (32,)
+expected_class 1.0
+Fidelity with class 0 (Benign): 0.6318359375
+Fidelity with class 1 (Malignant): 0.876953125
+
+Predicted class: 1
+"""
+
+```
+
+## File: Archive_src/swap_test/evaluate_swap_test_batch.py
+
+```py
+import os
+import numpy as np
+from tqdm import tqdm
+
+from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+BASE_ROOT, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+# ----------------------------
+# Quantum-safe conversion
+# ----------------------------
+def to_quantum_state(x):
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    n = len(x)
+    if not (n & (n - 1) == 0):
+        raise ValueError(f"State length {n} is not power of 2")
+    x = x / np.sqrt(np.sum(x ** 2))
+    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
+    return x
+
+
+# ----------------------------
+# Load class states
+# ----------------------------
+class_state_0 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
+)
+class_state_1 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
+)
+
+# ----------------------------
+# Load test embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+# ----------------------------
+# Evaluation subset
+# ----------------------------
+N_SAMPLES = 5000
+SHOTS = 1024
+
+#X = X[:N_SAMPLES]
+#y = y[:N_SAMPLES]
+
+# ----------------------------
+# SWAP test fidelity
+# ----------------------------
+def swap_test_fidelity(state_a, state_b, shots=1024):
+    n_qubits = int(np.log2(len(state_a)))
+    qc = QuantumCircuit(1 + 2 * n_qubits, 1)
+
+    anc = 0
+    reg_a = list(range(1, 1 + n_qubits))
+    reg_b = list(range(1 + n_qubits, 1 + 2 * n_qubits))
+
+    qc.initialize(state_a, reg_a)
+    qc.initialize(state_b, reg_b)
+
+    qc.h(anc)
+    for qa, qb in zip(reg_a, reg_b):
+        qc.cswap(anc, qa, qb)
+    qc.h(anc)
+
+    qc.measure(anc, 0)
+
+    backend = AerSimulator()
+    job = backend.run(qc, shots=shots)
+    counts = job.result().get_counts()
+
+    p0 = counts.get("0", 0) / shots
+    fidelity = 2 * p0 - 1
+    return fidelity
+
+
+# ----------------------------
+# Batch evaluation
+# ----------------------------
+correct = 0
+
+print(f"\n🔬 Evaluating SWAP-test classifier on {N_SAMPLES} samples\n")
+
+for i in tqdm(range(N_SAMPLES)):
+    x = to_quantum_state(X[i])
+
+    F0 = swap_test_fidelity(x, class_state_0, shots=SHOTS)
+    F1 = swap_test_fidelity(x, class_state_1, shots=SHOTS)
+
+    pred = 0 if F0 > F1 else 1
+    if pred == y[i]:
+        correct += 1
+
+accuracy = correct / N_SAMPLES
+
+print("\n==============================")
+print("Measurement-based Quantum SWAP Test")
+print(f"Samples: {N_SAMPLES}")
+print(f"Shots per test: {SHOTS}")
+print(f"Accuracy: {accuracy:.4f}")
+print("==============================\n")
+
+## output
+"""
+🌱 Global seed set to 42
+
+🔬 Evaluating SWAP-test classifier on 5000 samples
+
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 5000/5000 [03:46<00:00, 22.11it/s]
+
+==============================
+Measurement-based Quantum SWAP Test
+Samples: 5000
+Shots per test: 1024
+Accuracy: 0.8784
+==============================
+"""
+
+```
+
+## File: Archive_src/swap_test/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/quantum/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/quantum/isdo/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/quantum/isdo/isdo_K_sweep/old_evaluate_interference_k4.py
+
+```py
+import os
+import numpy as np
+from tqdm import tqdm
+
+from qiskit.quantum_info import Statevector
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+_, PATHS = load_paths()
+CLASS_DIR = PATHS["class_prototypes"]
+EMBED_DIR = PATHS["embeddings"] 
+
+K = int(PATHS["class_count"]["K"])
+INDEX_DIM = K
+DATA_DIM = 32
+
+
+# ----------------------------
+# Helper
+# ----------------------------
+def to_quantum_state(x):
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    x = x / np.sqrt(np.sum(x ** 2))
+    return x
+
+
+# ----------------------------
+# Load prototypes
+# ----------------------------
+def load_class_superposition(cls):
+    protos = []
+    for k in range(1,K):
+        p = np.load(os.path.join(CLASS_DIR, f"K{cls}/class{cls}_proto{k}.npy"))
+        protos.append(p)
+
+    # Build joint state |k> |phi_k>
+    joint = np.zeros(INDEX_DIM * DATA_DIM, dtype=np.float64)
+
+    for k, proto in enumerate(protos):
+        joint[k * DATA_DIM:(k + 1) * DATA_DIM] = proto
+
+    joint = joint / np.sqrt(K)  # superposition normalization
+    joint = to_quantum_state(joint)
+
+    return Statevector(joint)
+
+
+# ----------------------------
+# Load class states
+# ----------------------------
+Phi0 = load_class_superposition(0)
+Phi1 = load_class_superposition(1)
+
+
+# ----------------------------
+# Load data
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X = X[test_idx]
+y = y[test_idx]
+    
+N = len(X)
+correct = 0
+
+print(f"\n🔬 Evaluating Phase B (K={K}) on {N} samples\n")
+
+# ----------------------------
+# Evaluation
+# ----------------------------
+for i in tqdm(range(N)):
+    psi = to_quantum_state(X[i])
+
+    # Lift test state into joint space
+    joint_test = np.zeros(INDEX_DIM * DATA_DIM, dtype=np.float64)
+    for k in range(K):
+        joint_test[k * DATA_DIM:(k + 1) * DATA_DIM] = psi
+
+    joint_test = to_quantum_state(joint_test)
+    Psi = Statevector(joint_test)
+
+    F0 = abs(Psi.inner(Phi0)) ** 2
+    F1 = abs(Psi.inner(Phi1)) ** 2
+
+    pred = 0 if F0 > F1 else 1
+    if pred == y[i]:
+        correct += 1
+
+accuracy = correct / N
+
+print("\n==============================")
+print("Phase B: Interference-Based Measurement-Free Classifier")
+print(f"Prototypes per class: {K}")
+print(f"Samples: {N}")
+print(f"Accuracy: {accuracy:.4f}")
+print("==============================\n")
+
+
+## output 
+"""
+🌱 Global seed set to 42
+
+🔬 Evaluating Phase B (K=5) on 1500 samples
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 35004.26it/s]
+
+==============================
+Phase B: Interference-Based Measurement-Free Classifier
+Prototypes per class: 5
+Samples: 1500
+Accuracy: 0.8840
+==============================
+"""
+```
+
+## File: Archive_src/quantum/isdo/isdo_K_sweep/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/quantum/isdo/isdo_circuit_test/test_isdo_circuits_v1.py
+
+```py
+import numpy as np
+
+from src.quantum.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
+from src.archive.rfc.reflection_classifier import run_isdo_circuit_b
+from src.utils.common import build_chi_state
+
+
+# Dummy normalized vectors for sanity test
+psi = np.random.randn(32)
+psi /= np.linalg.norm(psi)
+
+phi0 = [np.random.randn(32) for _ in range(3)]
+phi1 = [np.random.randn(32) for _ in range(3)]
+phi0 = [p / np.linalg.norm(p) for p in phi0]
+phi1 = [p / np.linalg.norm(p) for p in phi1]
+
+chi = build_chi_state(phi0, phi1)
+
+za = run_isdo_circuit_a(psi, chi)
+zb = run_isdo_circuit_b(psi, chi)
+
+print("Circuit A ⟨Z⟩:", za)
+print("Circuit B ⟨Z⟩:", zb)
+print("Difference:", abs(za - zb))
+
+```
+
+## File: Archive_src/quantum/isdo/isdo_circuit_test/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/quantum/isdo/circuit/circuit_a_controlled_state.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import StatePreparation
+
+from src.utils.common import load_statevector
+
+
+def build_isdo_circuit_a(psi, chi):
+    """
+    ISDO Circuit A: Controlled state preparation
+    """
+    n = int(np.log2(len(psi)))
+    qc = QuantumCircuit(1 + n, 1)
+
+    anc = 0
+    data = list(range(1, n + 1))
+
+    # Hadamard on ancilla
+    qc.h(anc)
+
+    # Controlled |psi>
+    state_prep_psi = StatePreparation(psi)
+    qc.append(state_prep_psi.control(1), [anc] + data)
+
+    # Flip ancilla
+    qc.x(anc)
+
+    # Controlled |chi>
+    state_prep_chi = StatePreparation(chi)
+    qc.append(state_prep_chi.control(1), [anc] + data)
+
+    # Undo flip
+    qc.x(anc)
+
+    # Interference
+    qc.h(anc)
+
+    # Measure ancilla
+    qc.measure(anc, 0)
+
+    return qc
+
+
+def run_isdo_circuit_a(psi, chi):
+    """
+    Exact (statevector) evaluation of ⟨Z⟩
+    """
+    qc = build_isdo_circuit_a(psi, chi)
+    qc_no_meas = qc.remove_final_measurements(inplace=False)
+    sv = Statevector.from_instruction(qc_no_meas)
+    z_exp = sv.expectation_value(Pauli('Z'), [0]).real
+    return z_exp
+```
+
+## File: Archive_src/quantum/isdo/circuit/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/statevector_similarity/compute_class_states.py
+
+```py
+import os
+import json
+import numpy as np
+from sklearn.preprocessing import normalize
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+BASE_ROOT, PATHS = load_paths()
+
+EMBED_DIR = PATHS["embeddings"]
+SAVE_DIR = PATHS["embeddings"]
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# ----------------------------
+# Load embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded embeddings:", X_train.shape)
+# ----------------------------
+# Compute class means
+# ----------------------------
+class_states = {}
+
+for cls in np.unique(y):
+    X_cls = X_train[y_train == cls]
+    #X_cls = X_cls.astype(np.float64)
+
+    # Mean in FP64
+    mean_vec = X_cls.mean(axis=0)
+
+    # Exact FP64 normalization
+    norm = np.sqrt(np.sum(mean_vec ** 2))
+    mean_vec = mean_vec / norm
+
+    # Sanity check (important)
+    assert np.isclose(np.sum(mean_vec ** 2), 1.0, atol=1e-12)
+
+    class_states[int(cls)] = mean_vec
+
+    print(
+        f"Class {cls}: "
+        f"samples = {len(X_cls)}, "
+        f"norm = {np.linalg.norm(mean_vec):.12f}"
+    )
+
+# ----------------------------
+# Save
+# ----------------------------
+np.save(os.path.join(SAVE_DIR, "class_state_0.npy"), class_states[0])
+np.save(os.path.join(SAVE_DIR, "class_state_1.npy"), class_states[1])
+
+# Optional: save metadata
+with open(os.path.join(SAVE_DIR, "class_states_meta.json"), "w") as f:
+    json.dump(
+        {
+            "embedding_dim": X.shape[1],
+            "classes": list(class_states.keys()),
+            "normalization": "l2",
+            "source": "mean_of_class_embeddings",
+        },
+        f,
+        indent=2,
+    )
+
+print("\n✅ Class states saved:")
+print(" - class_state_0.npy (Benign)")
+print(" - class_state_1.npy (Malignant)")
+
+```
+
+## File: Archive_src/statevector_similarity/evaluate_statevector_similarity.py
+
+```py
+import os
+import numpy as np
+from tqdm import tqdm
+
+from qiskit.quantum_info import Statevector
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+
+# ----------------------------
+# Quantum-safe conversion
+# ----------------------------
+def to_quantum_state(x):
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    n = len(x)
+    if not (n & (n - 1) == 0):
+        raise ValueError(f"State length {n} is not power of 2")
+    x = x / np.sqrt(np.sum(x ** 2))
+    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
+    return x
+
+
+# ----------------------------
+# Load class states
+# ----------------------------
+phi0 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
+)
+phi1 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
+)
+
+sv_phi0 = Statevector(phi0)
+sv_phi1 = Statevector(phi1)
+
+
+# ----------------------------
+# Load embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X = X[test_idx]
+y = y[test_idx]
+
+N = len(X)
+correct = 0
+
+print(f"\n🔬 Evaluating measurement-free statevector classifier on {N} samples\n")
+
+for i in tqdm(range(N)):
+    psi = Statevector(to_quantum_state(X[i]))
+
+    F0 = abs(psi.inner(sv_phi0)) ** 2
+    F1 = abs(psi.inner(sv_phi1)) ** 2
+
+    pred = 0 if F0 > F1 else 1
+    if pred == y[i]:
+        correct += 1
+
+accuracy = correct / N
+
+print("\n==============================")
+print("Measurement-free (Statevector) Quantum Classifier")
+print(f"Samples: {N}")
+print(f"Accuracy: {accuracy:.4f}")
+print("==============================\n")
+
+## output
+"""
+🌱 Global seed set to 42
+
+🔬 Evaluating measurement-free statevector classifier on 1500 samples
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 29429.03it/s]
+
+==============================
+Measurement-free (Statevector) Quantum Classifier
+Samples: 1500
+Accuracy: 0.8827
+==============================
+"""
+```
+
+## File: Archive_src/statevector_similarity/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/rfc/reflection_classifier.py
+
+```py
+# Reflection-Fidelity Classifier
+
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import StatePreparation, UnitaryGate
+from src.utils.common import load_statevector
+
+
+def reflection_operator(chi):
+    """
+    Build R_chi = I - 2|chi><chi|
+    """
+    dim = len(chi)
+    proj = np.outer(chi, chi.conj())
+    return np.eye(dim) - 2 * proj
+
+
+def build_isdo_circuit_b(psi, chi):
+    """
+    ISDO Circuit B: Phase kickback via reflection
+    """
+    n = int(np.log2(len(psi)))
+    qc = QuantumCircuit(1 + n, 1)
+
+    anc = 0
+    data = list(range(1, n + 1))
+
+    # Prepare |psi>
+    state_prep_psi = StatePreparation(psi)
+    qc.append(state_prep_psi, data)
+
+    # Hadamard ancilla
+    qc.h(anc)
+
+    # Controlled reflection
+    R = UnitaryGate(reflection_operator(chi), label="R_chi")
+    qc.append(R.control(1), [anc] + data)
+
+    # Interference
+    qc.h(anc)
+
+    # Measure ancilla
+    qc.measure(anc, 0)
+
+    return qc
+
+
+def run_isdo_circuit_b(psi, chi):
+    """
+    Exact ⟨Z⟩ extraction
+    """
+    qc = build_isdo_circuit_b(psi, chi)
+    qc_no_meas = qc.remove_final_measurements(inplace=False)
+    sv = Statevector.from_instruction(qc_no_meas)
+    z_exp = sv.expectation_value(Pauli('Z'), [0]).real
+    return z_exp
+```
+
+## File: Archive_src/rfc/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/expriments/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/expriments/iqc/run_regime3c_v1.py
+
+```py
+import os
+import numpy as np
+from collections import Counter
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.interference.math_backend import MathInterferenceBackend
+
+from src.IQC.training.regime3c_trainer_v1 import Regime3CTrainer
+from src.IQC.inference.regime3b_classifier import Regime3BClassifier
+import pickle
+
+
+# -------------------------------------------------
+# Reproducibility
+# -------------------------------------------------
+set_seed(42)
+
+
+# -------------------------------------------------
+# Load paths
+# -------------------------------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
+
+os.makedirs(EMBED_DIR, exist_ok=True)
+os.makedirs(PATHS["artifacts"], exist_ok=True)
+
+# -------------------------------------------------
+# Load embeddings (TRAIN SPLIT)
+# -------------------------------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded train embeddings:", X_train.shape)
+
+
+# -------------------------------------------------
+# Prepare dataset (same as Regime 2 / 3-A / 3-B)
+# -------------------------------------------------
+dataset = [
+    (embedding_to_state(x), int(label))
+    for x, label in zip(X_train, y_train)
+]
+
+# shuffle (important for online + growth)
+rng = np.random.default_rng(42)
+perm = rng.permutation(len(dataset))
+dataset = [dataset[i] for i in perm]
+
+
+# -------------------------------------------------
+# Initialize memory bank (M = 3)
+# -------------------------------------------------
+d = dataset[0][0].shape[0]
+
+class_states = []
+for _ in range(3):
+    v = np.random.randn(d)
+    v /= np.linalg.norm(v)
+    class_states.append(ClassState(v))
+    
+backend = MathInterferenceBackend()
+
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
+
+
+print("Initial number of memories:", len(memory_bank.class_states))
+
+
+# -------------------------------------------------
+# Train Regime 3-C (percentile-based τ)
+# -------------------------------------------------
+trainer = Regime3CTrainer(
+    memory_bank=memory_bank,
+    eta=0.1,
+    percentile=5,       # τ = 5th percentile of margins
+    tau_abs = -0.121,
+    margin_window=500   # sliding window for stability
+)
+
+trainer.train(dataset)
+
+print("Training finished.")
+print("Number of memories after training:", len(memory_bank.class_states))
+print("Number of spawned memories:", trainer.num_spawns)
+print("Number of updates:", trainer.num_updates)
+
+
+# -------------------------------------------------
+# Evaluate using Regime 3-B inference
+# -------------------------------------------------
+classifier = Regime3BClassifier(memory_bank)
+
+correct = 0
+for psi, y in dataset:
+    if classifier.predict(psi) == y:
+        correct += 1
+
+acc_3c = correct / len(dataset)
+print("Regime 3-C accuracy (3-B inference):", acc_3c)
+
+
+# -------------------------------------------------
+# Optional diagnostics
+# -------------------------------------------------
+print("Final memory count:", len(memory_bank.class_states))
+
+with open(MEMORY_PATH, "wb") as f:
+    pickle.dump(memory_bank, f)
+
+print("Saved Regime 3-C memory bank.")
+
+### output
+"""
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Initial number of memories: 3
+Training finished.
+Number of memories after training: 3
+Number of spawned memories: 0
+Number of updates: 524
+Regime 3-C accuracy (3-B inference): 0.7948571428571428
+Final memory count: 3
+"""
+```
+
+## File: Archive_src/expriments/iqc/run_regime3b.py
+
+```py
+from src.IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.training.regime3a_trainer import Regime3ATrainer
+from src.IQC.interference.math_backend import MathInterferenceBackend
+
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+import os
+import numpy as np
+from collections import Counter
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+os.makedirs(EMBED_DIR, exist_ok=True)
+
+# ----------------------------
+# Load embeddings (TRAIN ONLY)
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded train embeddings:", X_train.shape)
+
+dataset = [
+        (embedding_to_state(x), int(label))
+        for x, label in zip(X_train, y_train)
+    ]
+
+# shuffle (important for online + growth)
+rng = np.random.default_rng(42)
+perm = rng.permutation(len(dataset))
+dataset = [dataset[i] for i in perm]
+
+d = dataset[0][0].shape[0]
+
+class_states = []
+for _ in range(3):
+    v = np.random.randn(d)
+    v /= np.linalg.norm(v)
+    class_states.append(ClassState(v))
+
+backend = MathInterferenceBackend()
+
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
+trainer = Regime3ATrainer(memory_bank, eta=0.1)
+acc = trainer.train(dataset)
+
+# now we train 3b 
+classifier = Regime3BClassifier(trainer.memory_bank)
+
+correct = 0
+for psi, y in dataset:
+    y_hat = classifier.predict(psi)
+    if y_hat == y:
+        correct += 1
+
+acc_3b = correct / len(dataset)
+print("Regime 3-B accuracy:", acc_3b)
+print("Memory usage:", Counter(trainer.history["winner_idx"]))
+### output
+"""
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Regime 3-B accuracy: 0.8342857142857143
+Memory usage: Counter({2: 1473, 0: 1243, 1: 784})
+"""
+```
+
+## File: Archive_src/expriments/iqc/verify_isdo_bprime_backend.py
+
+```py
+import numpy as np
+from scipy.stats import spearmanr
+
+from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
+from src.IQC.interference.circuit_backend_isdo_bprime import ISDOBPrimeInterferenceBackend
+
+
+def random_state(n):
+    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
+    v /= np.linalg.norm(v)
+    return v
+
+
+def sign(x):
+    return 1 if x >= 0 else -1
+
+
+np.random.seed(0)
+
+math_backend = MathInterferenceBackend()
+ref_backend = TransitionInterferenceBackend()
+isdo_backend = ISDOBPrimeInterferenceBackend()
+
+n = 4
+num_tests = 100
+
+sign_agree = 0
+ref_vals = []
+isdo_vals = []
+
+for _ in range(num_tests):
+    chi = random_state(n)
+    psi = random_state(n)
+
+    s_ref = ref_backend.score(chi, psi)
+    s_isdo = isdo_backend.score(chi, psi)
+
+    ref_vals.append(s_ref)
+    isdo_vals.append(s_isdo)
+
+    if sign(s_ref) == sign(s_isdo):
+        sign_agree += 1
+
+rho, _ = spearmanr(ref_vals, isdo_vals)
+
+print("ISDO-B′ vs Transition backend")
+print("Sign agreement:", sign_agree, "/", num_tests)
+print("Spearman rank correlation:", rho)
+print("Mean |difference|:", np.mean(np.abs(np.array(ref_vals) - np.array(isdo_vals))))
+
+"""
+ISDO-B′ vs Transition backend
+Sign agreement: 51 / 100
+Spearman rank correlation: -0.029006900690069004
+Mean |difference|: 0.21415260812801665
+"""
+```
+
+## File: Archive_src/expriments/iqc/verify_hadamard_backend.py
+
+```py
+import numpy as np
+
+from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.interference.circuit_backend_hadamard import HadamardInterferenceBackend
+
+
+def random_state(n):
+    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
+    v /= np.linalg.norm(v)
+    return v
+
+
+def sign(x):
+    return 1 if x >= 0 else -1
+
+
+np.random.seed(0)
+
+math_backend = MathInterferenceBackend()
+had_backend = HadamardInterferenceBackend()
+
+n = 3  # small, exact verification
+num_tests = 50
+
+sign_agree = 0
+vals = []
+
+for _ in range(num_tests):
+    chi = random_state(n)
+    psi = random_state(n)
+
+    s_math = math_backend.score(chi, psi)
+    s_had = had_backend.score(chi, psi)
+
+    vals.append((s_math, s_had))
+
+    if sign(s_math) == sign(s_had):
+        sign_agree += 1
+
+print("Sign agreement:", sign_agree, "/", num_tests)
+print("Mean abs error:", np.mean([abs(a - b) for a, b in vals]))
+
+## output
+"""
+Sign agreement: 50 / 50
+Mean abs error: 6.399047958183246e-16
+"""
+```
+
+## File: Archive_src/expriments/iqc/run_regime3a.py
+
+```py
+from src.IQC.training.regime3a_trainer import Regime3ATrainer
+from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+import os
+import numpy as np
+from collections import Counter
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+os.makedirs(EMBED_DIR, exist_ok=True)
+
+# ----------------------------
+# Load embeddings (TRAIN ONLY)
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded train embeddings:", X_train.shape)
+
+dataset = [
+        (embedding_to_state(x), int(label))
+        for x, label in zip(X_train, y_train)
+    ]
+
+
+d = dataset[0][0].shape[0]
+
+class_states = []
+for _ in range(3):
+    v = np.random.randn(d)
+    v /= np.linalg.norm(v)
+    class_states.append(ClassState(v))
+
+memory_bank = MemoryBank(class_states)
+trainer = Regime3ATrainer(memory_bank, eta=0.1)
+
+acc = trainer.train(dataset)
+
+print("Regime 3-A accuracy:", acc)
+print("Total updates:", trainer.num_updates)
+print(Counter(trainer.history["winner_idx"]))
+
+### output
+"""
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Regime 3-A accuracy: 0.8328571428571429
+Total updates: 585
+Counter({0: 1266, 2: 1238, 1: 996})
+"""
+```
+
+## File: Archive_src/expriments/iqc/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/IQC/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/IQC/training/regime3c_trainer_v1.py
+
+```py
+import numpy as np
+from collections import deque
+
+from ..learning.regime2_update import regime2_update
+
+
+class Regime3CTrainer:
+    """
+    Regime 3-C: Dynamic Memory Growth with Percentile-based τ
+    """
+
+    def __init__(
+        self,
+        memory_bank,
+        eta=0.1,
+        percentile=5,
+        tau_abs = -0.4,
+        margin_window=500,
+    ):
+        self.memory_bank = memory_bank
+        self.eta = eta
+        self.percentile = percentile
+        self.tau_abs = tau_abs
+
+        # store recent margins
+        self.margins = deque(maxlen=margin_window)
+
+        self.num_updates = 0
+        self.num_spawns = 0
+
+        self.history = {
+            "margin": [],
+            "spawned": [],
+            "num_memories": [],
+        }
+
+    def aggregated_score(self, psi):
+        scores = np.array([
+            float(np.real(np.vdot(cs.vector, psi)))
+            for cs in self.memory_bank.class_states
+        ])
+        return scores.mean()  # uniform weights
+
+    def step(self, psi, y):
+        S = self.aggregated_score(psi)
+        margin = y * S
+
+        # compute τ only after we have some history
+        if len(self.margins) >= 20:
+            tau = np.percentile(self.margins, self.percentile)
+        else:
+            tau = -np.inf  # disable spawning early
+
+        spawned = False
+
+        if (margin < tau) and (margin < self.tau_abs):
+            # 🔥 spawn new memory
+            chi_new = y * psi
+            chi_new = chi_new / np.linalg.norm(chi_new)
+            self.memory_bank.add_memory(chi_new)
+            self.num_spawns += 1
+            spawned = True
+
+        elif margin < 0:
+            # update winning memory
+            idx, _ = self.memory_bank.winner(psi)
+            cs = self.memory_bank.class_states[idx]
+
+            chi_new, updated = regime2_update(
+                cs.vector, psi, y, self.eta
+            )
+
+            if updated:
+                cs.vector = chi_new
+                self.num_updates += 1
+
+        # logging
+        self.margins.append(margin)
+        self.history["margin"].append(margin)
+        self.history["spawned"].append(spawned)
+        self.history["num_memories"].append(
+            len(self.memory_bank.class_states)
+        )
+
+        return margin, spawned
+
+    def train(self, dataset):
+        for psi, y in dataset:
+            self.step(psi, y)
+
+```
+
+## File: Archive_src/IQC/training/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/IQC/interference/circuit_backend_hadamard.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import StatePreparation  # ✅ Correct import
+from .base import InterferenceBackend
+
+# If you also want the conceptual/oracle version:
+class HadamardInterferenceBackend(InterferenceBackend):
+    """
+    CONCEPTUAL Hadamard-test using oracle state preparation.
+    
+    WARNING: This uses non-unitary StatePreparation and is NOT 
+    physically realizable. Use only for conceptual understanding.
+    For actual implementation, use TransitionInterferenceBackend.
+    
+    Computes Re⟨chi | psi⟩ in oracle model.
+    """
+    
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+        
+        # Normalize
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+        
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+        
+        qc = QuantumCircuit(1 + n)
+        anc = 0
+        data = list(range(1, 1 + n))
+        
+        # Hadamard on ancilla
+        qc.h(anc)
+        
+        # Controlled state preparation (ORACLE ASSUMPTION)
+        # When anc=0: prepare |psi⟩
+        state_prep_psi = StatePreparation(psi)
+        qc.append(state_prep_psi.control(1), [anc] + data)
+        
+        # Flip ancilla
+        qc.x(anc)
+        
+        # When anc=1 (after flip, so anc=0): prepare |chi⟩
+        state_prep_chi = StatePreparation(chi)
+        qc.append(state_prep_chi.control(1), [anc] + data)
+        
+        # Flip back
+        qc.x(anc)
+        
+        # Final Hadamard
+        qc.h(anc)
+        
+        # Get statevector and measure Z on ancilla
+        sv = Statevector.from_instruction(qc)
+        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
+        
+        return float(z_exp)
+```
+
+## File: Archive_src/IQC/interference/__init__.py
+
+```py
+
+```
+
+## File: Archive_src/IQC/inference/regime3a_classifier.py
+
+```py
+class Regime3AClassifier:
+    def __init__(self, memory_bank):
+        self.memory_bank = memory_bank
+
+    def predict(self, psi):
+        idx, score = self.memory_bank.winner(psi)
+        return 1 if score >= 0 else -1
+
+```
+
+## File: Archive_src/IQC/inference/__init__.py
 
 ```py
 
