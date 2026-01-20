@@ -11,7 +11,8 @@ class MemoryBank:
 
     def winner(self, psi):
         scores = self.scores(psi)
-        idx = int(max(range(len(scores)), key=lambda i: abs(scores[i])))
+        #idx = int(max(range(len(scores)), key=lambda i: abs(scores[i])))
+        idx = int(max(range(len(scores)), key=lambda i: scores[i]))
         return idx, scores[idx]
 
     def add_memory(self, chi_vector):

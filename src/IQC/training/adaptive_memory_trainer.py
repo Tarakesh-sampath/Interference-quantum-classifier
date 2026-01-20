@@ -1,10 +1,8 @@
 import numpy as np
 from collections import deque
+from ..learning.perceptron_update import perceptron_update
 
-from ..learning.regime2_update import regime2_update
-
-
-class Regime3CTrainer:
+class AdaptiveMemoryTrainer:
     """
     Regime 3-C: Dynamic Memory Growth with Percentile-based τ
     """
@@ -64,7 +62,7 @@ class Regime3CTrainer:
             idx, _ = self.memory_bank.winner(psi)
             cs = self.memory_bank.class_states[idx]
 
-            chi_new, updated = regime2_update(
+            chi_new, updated = perceptron_update(
                 cs.vector, psi, y, self.eta
             )
 

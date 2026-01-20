@@ -1,4 +1,6 @@
 import numpy as np
+from src.ISDO.observables.isdo import isdo_observable
+
 
 def normalize(v: np.ndarray) -> np.ndarray:
     norm = np.linalg.norm(v)
@@ -20,7 +22,7 @@ class ClassState:
         """
         ISDO score: Re <chi | psi>
         """
-        return float(np.real(np.vdot(self.vector, psi)))
+        return isdo_observable(self.vector, psi)
 
     def update(self, delta: np.ndarray):
         """

@@ -3,7 +3,7 @@ import os
 
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.training.regime2_trainer import Regime2Trainer
+from src.IQC.training.online_perceptron_trainer import OnlinePerceptronTrainer
 from src.IQC.training.metrics import summarize_training
 
 from src.utils.paths import load_paths
@@ -49,7 +49,7 @@ def main():
     chi0 = chi0 / np.linalg.norm(chi0)
 
     class_state = ClassState(chi0)
-    trainer = Regime2Trainer(class_state, eta=0.1)
+    trainer = OnlinePerceptronTrainer(class_state, eta=0.1)
 
     acc = trainer.train(dataset)
     stats = summarize_training(trainer.history)

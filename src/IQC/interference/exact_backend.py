@@ -1,7 +1,7 @@
 import numpy as np
 from .base import InterferenceBackend
 
-class MathInterferenceBackend(InterferenceBackend):
+class ExactBackend(InterferenceBackend):
     """
     Numpy-based interference backend.
     This reproduces existing behavior exactly.

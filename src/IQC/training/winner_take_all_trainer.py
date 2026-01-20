@@ -1,6 +1,6 @@
-from ..learning.regime2_update import regime2_update
+from ..learning.perceptron_update import perceptron_update
 
-class Regime3ATrainer:
+class WinnerTakeAllTrainer:
     """
     Regime 3-A: Winner-Takes-All IQC
     Only the winning memory is updated.
@@ -21,7 +21,7 @@ class Regime3ATrainer:
         idx, score = self.memory_bank.winner(psi)
         cs = self.memory_bank.class_states[idx]
 
-        chi_new, updated = regime2_update(
+        chi_new, updated = perceptron_update(
             cs.vector, psi, y, self.eta
         )
 

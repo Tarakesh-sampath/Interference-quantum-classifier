@@ -1,4 +1,4 @@
-class Regime3BClassifier:
+class WeightedVoteClassifier:
     def __init__(self, memory_bank, weights=None):
         self.memory_bank = memory_bank
         self.M = len(memory_bank.class_states)

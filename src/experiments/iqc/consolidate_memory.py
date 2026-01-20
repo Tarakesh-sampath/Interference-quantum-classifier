@@ -5,9 +5,9 @@ from src.utils.paths import load_paths
 from src.utils.seed import set_seed
 
 from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.training.regime3a_trainer import Regime3ATrainer
-from src.IQC.inference.regime3b_classifier import Regime3BClassifier
-from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.training.winner_take_all_trainer import WinnerTakeAllTrainer
+from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
+from src.IQC.interference.ExactBackend import ExactBackend
 
 
 # -------------------------------------------------
@@ -75,7 +75,7 @@ print("Loaded memory bank with",
 # Use Regime 3-A trainer:
 # - updates memories
 # - NO spawning logic
-trainer = Regime3ATrainer(
+trainer = WinnerTakeAllTrainer(
     memory_bank=memory_bank,
     eta=0.05      # slightly smaller eta for stabilization
 )
@@ -88,7 +88,7 @@ print("Updates during consolidation:", trainer.num_updates)
 # -------------------------------------------------
 # 📊 FINAL EVALUATION (Regime 3-B inference)
 # -------------------------------------------------
-classifier = Regime3BClassifier(memory_bank)
+classifier = WeightedVoteClassifier(memory_bank)
 
 correct = 0
 for psi, y in dataset:

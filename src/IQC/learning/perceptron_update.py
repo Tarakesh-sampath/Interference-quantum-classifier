@@ -1,6 +1,8 @@
 import numpy as np
+from src.ISDO.observables.isdo import isdo_observable
 
-def regime2_update(
+
+def perceptron_update(
     chi: np.ndarray,
     psi: np.ndarray,
     y: int,
@@ -14,7 +16,7 @@ def regime2_update(
     else:
         chi <- normalize(chi + eta * y * psi)
     """
-    s = float(np.real(np.vdot(chi, psi)))
+    s = isdo_observable(chi, psi)
 
     if y * s >= 0:
         return chi, False  # correct classification

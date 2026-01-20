@@ -1,7 +1,7 @@
 import numpy as np
 
-from src.IQC.interference.math_backend import MathInterferenceBackend
-from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
+from src.IQC.interference.ExactBackend import ExactBackend
+from src.IQC.interference.TransitionBackend import TransitionBackend
 
 
 def random_state(n):
@@ -16,8 +16,8 @@ def sign(x):
 
 np.random.seed(0)
 
-math_backend = MathInterferenceBackend()
-transition_backend = TransitionInterferenceBackend()
+math_backend = ExactBackend()
+TransitionBackend = TransitionBackend()
 
 n = 3  # small, exact verification
 num_tests = 50
@@ -30,7 +30,7 @@ for _ in range(num_tests):
     psi = random_state(n)
 
     s_math = math_backend.score(chi, psi)
-    s_transition = transition_backend.score(chi, psi)
+    s_transition = TransitionBackend.score(chi, psi)
 
     vals.append((s_math, s_transition))
 

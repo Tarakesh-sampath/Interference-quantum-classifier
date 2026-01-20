@@ -5,7 +5,7 @@ from qiskit.circuit.library import UnitaryGate, StatePreparation  # ✅ Correct 
 from .base import InterferenceBackend
 
 
-class TransitionInterferenceBackend(InterferenceBackend):
+class TransitionBackend(InterferenceBackend):
     """
     CORRECT physical Hadamard-test using transition unitary.
     
@@ -47,8 +47,8 @@ class TransitionInterferenceBackend(InterferenceBackend):
     @staticmethod
     def _build_transition_unitary(psi, chi):
         """Build U_chi_psi = U_chi @ U_psi^dagger"""
-        U_psi = TransitionInterferenceBackend._statevector_to_unitary(psi)
-        U_chi = TransitionInterferenceBackend._statevector_to_unitary(chi)
+        U_psi = TransitionBackend._statevector_to_unitary(psi)
+        U_chi = TransitionBackend._statevector_to_unitary(chi)
         
         # Transition unitary
         U_chi_psi = U_chi @ U_psi.conj().T

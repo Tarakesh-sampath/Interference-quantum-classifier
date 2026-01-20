@@ -2,7 +2,7 @@ import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from src.quantum.isdo.isdo_classifier import ISDOClassifier
+from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
 from src.utils.paths import load_paths
 import matplotlib.pyplot as plt
 
@@ -21,8 +21,8 @@ y_test = y[test_idx]
 
 accuracy = []
 for K in PATHS["class_count"]["K_values"]:
-    proto_dir = os.path.join(PROTO_BASE, f"K{K}")
-    clf = ISDOClassifier(proto_dir, K)
+    #proto_dir = os.path.join(PROTO_BASE, f"K{K}")
+    clf = StaticISDOClassifier(PROTO_BASE, K)
 
     y_pred = clf.predict(X_test)
     acc = accuracy_score(y_test, y_pred)

@@ -1,7 +1,8 @@
 import os
 import numpy as np
+from src.ISDO.observables.isdo import isdo_observable
 
-class ISDOClassifier:
+class StaticISDOClassifier:
     def __init__(self, proto_dir, K):
         self.proto_dir = proto_dir
         self.K = K
@@ -11,9 +12,12 @@ class ISDOClassifier:
         }
 
     def predict_one(self, psi):
-        A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])
-        A1 = sum(np.vdot(p, psi) for p in self.prototypes[1])
-        return 1 if np.real(A0 - A1) < 0 else 0
+        #A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])
+        #A1 = sum(np.vdot(p, psi) for p in self.prototypes[1])
+        #return 1 if np.real(A0 - A1) < 0 else 0
+        chi = sum(self.prototypes[0]) - sum(self.prototypes[1])
+        chi /= np.linalg.norm(chi)
+        return 1 if isdo_observable(chi, psi) < 0 else 0
 
     def predict(self, X):
         return np.array([self.predict_one(x) for x in X])

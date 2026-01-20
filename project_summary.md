@@ -15,6 +15,17 @@ measurement-free-quantum-classifier/
         paths.yaml
     src/
         __init__.py
+        ISDO/
+            __init__.py
+            observables/
+                isdo.py
+                __init__.py
+            circuits/
+                transition_isdo.py
+                __init__.py
+            baselines/
+                static_isdo_classifier.py
+                __init__.py
         utils/
             common.py
             paths.py
@@ -24,62 +35,50 @@ measurement-free-quantum-classifier/
             pcam_loader.py
             transforms.py
             __init__.py
-        quantum/
-            __init__.py
-            isdo/
-                evaluate_isdo.py
-                isdo_classifier.py
-                __init__.py
-                isdo_K_sweep/
-                    evaluate_isdo_k_sweep.py
-                    calculate_isdo_k_sweep.py
-                    __init__.py
-                isdo_circuit_test/
-                    test_isdo_circuits_v2.py
-                    __init__.py
-                circuits/
-                    circuit_b_prime_transition.py
-                    __init__.py
         classical/
             cnn.py
             __init__.py
         experiments/
             __init__.py
             iqc/
-                run_regime2.py
+                consolidate_memory.py
+                train_perceptron.py
+                train_adaptive_memory.py
                 verify_transition_backend.py
-                run_regime3c_consolidation.py
-                run_regime3c_v2.py
                 __init__.py
+            isdo/
+                evaluate_isdo_k_sweep.py
+                evaluate_transition_isdo.py
+                evaluate_static_isdo.py
+                __init__.py
+                prototype/
+                    calculate_prototype.py
+                    __init__.py
         IQC/
             __init__.py
             learning/
-                regime2_update.py
+                perceptron_update.py
                 __init__.py
             states/
                 class_state.py
-                state_init.py
                 __init__.py
             training/
-                regime2_trainer.py
-                regime3c_trainer_v2.py
-                regime3a_trainer.py
+                winner_take_all_trainer.py
+                adaptive_memory_trainer.py
+                online_perceptron_trainer.py
                 metrics.py
-                __init__.py
-            observable/
-                isdo_score.py
                 __init__.py
             memory/
                 memory_bank.py
                 __init__.py
             interference/
-                circuit_backend_hadamard.py
                 base.py
-                circuit_backend_transition.py
-                math_backend.py
+                transition_backend.py
+                exact_backend.py
+                oracle_backend.py
                 __init__.py
             inference/
-                regime3b_classifier.py
+                weighted_vote_classifier.py
                 __init__.py
             encoding/
                 embedding_to_state.py
@@ -823,6 +822,160 @@ class_count:
 
 ```
 
+## File: src/ISDO/__init__.py
+
+```py
+
+```
+
+## File: src/ISDO/observables/isdo.py
+
+```py
+# src/quantum/observables/isdo.py
+import numpy as np
+
+def isdo_observable(chi, psi) -> float:
+    """
+    ISDO observable:
+    Linear interference score Re⟨χ|ψ⟩
+    """
+    return float(np.real(np.vdot(chi, psi)))
+
+```
+
+## File: src/ISDO/observables/__init__.py
+
+```py
+
+```
+
+## File: src/ISDO/circuits/transition_isdo.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+#from qiskit.circuit.library import UnitaryGate
+from src.utils.common import build_transition_unitary
+
+def build(psi, chi):
+    """
+    ISDO Circuit B': Transition-based interference (CORRECT PHYSICAL IMPLEMENTATION)
+    
+    This circuit measures Re⟨χ|ψ⟩ using a controlled transition unitary.
+    
+    Circuit structure:
+        Ancilla: |0⟩ ──H──●────H──M
+                           │
+        Data:    |ψ⟩ ─────U_χψ────
+    
+    Where U_χψ is the transition unitary: U_χψ |ψ⟩ = |χ⟩
+    
+    This produces LINEAR interference, not quadratic!
+    """
+    n = int(np.log2(len(psi)))
+    qc = QuantumCircuit(1 + n, 1)
+    
+    anc = 0
+    data = list(range(1, n + 1))
+    
+    # Prepare |ψ⟩ on data qubits (in practice, this comes from previous computation)
+    # For simulation, we'll use state preparation
+    from qiskit.circuit.library import StatePreparation
+    qc.append(StatePreparation(psi), data)
+    
+    # Hadamard on ancilla
+    qc.h(anc)
+    
+    # Controlled transition unitary
+    U_chi_psi = build_transition_unitary(psi, chi)
+    qc.append(U_chi_psi.control(1), [anc] + data)
+    
+    # Final Hadamard
+    qc.h(anc)
+    
+    # Measure ancilla
+    qc.measure(anc, 0)
+    
+    return qc
+
+
+def run(psi, chi):
+    """
+    Exact (statevector) evaluation of ⟨Z⟩ which gives Re⟨χ|ψ⟩
+    
+    This is the CORRECT physical implementation of ISDO.
+    """
+    qc = build(psi, chi)
+    qc_no_meas = qc.remove_final_measurements(inplace=False)
+    sv = Statevector.from_instruction(qc_no_meas)
+    z_exp = sv.expectation_value(Pauli('Z'), [0]).real
+    return z_exp
+
+
+def verify(psi, chi):
+    """
+    Verify that the circuit correctly computes Re⟨χ|ψ⟩
+    """
+    # Normalize inputs
+    psi = np.asarray(psi, dtype=np.complex128)
+    chi = np.asarray(chi, dtype=np.complex128)
+    psi = psi / np.linalg.norm(psi)
+    chi = chi / np.linalg.norm(chi)
+    
+    # Expected value
+    expected = np.real(np.vdot(chi, psi))
+    
+    # Circuit result
+    measured = run(psi, chi)
+    
+    # Check
+    is_correct = np.allclose(measured, expected, atol=1e-10)
+    
+    print(f"Expected:  {expected}")
+    print(f"Measured:  {measured}")
+    print(f"Correct:   {is_correct}")
+    
+    return is_correct
+```
+
+## File: src/ISDO/circuits/__init__.py
+
+```py
+
+```
+
+## File: src/ISDO/baselines/static_isdo_classifier.py
+
+```py
+import os
+import numpy as np
+
+class StaticISDOClassifier:
+    def __init__(self, proto_dir, K):
+        self.proto_dir = proto_dir
+        self.K = K
+        self.prototypes = {
+            0: [np.load(os.path.join(proto_dir, f"K{K}/class0_proto{i}.npy")) for i in range(K)],
+            1: [np.load(os.path.join(proto_dir, f"K{K}/class1_proto{i}.npy")) for i in range(K)],
+        }
+
+    def predict_one(self, psi):
+        A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])
+        A1 = sum(np.vdot(p, psi) for p in self.prototypes[1])
+        return 1 if np.real(A0 - A1) < 0 else 0
+
+    def predict(self, X):
+        return np.array([self.predict_one(x) for x in X])
+
+```
+
+## File: src/ISDO/baselines/__init__.py
+
+```py
+
+```
+
 ## File: src/utils/common.py
 
 ```py
@@ -1073,86 +1226,476 @@ def get_eval_transforms():
 
 ```
 
-## File: src/quantum/__init__.py
+## File: src/classical/cnn.py
+
+```py
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class PCamCNN(nn.Module):
+    """
+    Lightweight CNN for PCam feature extraction.
+    Produces low-dimensional embeddings suitable for quantum encoding.
+    """
+
+    def __init__(self, embedding_dim: int = 32, num_classes: int = 2):
+        super().__init__()
+
+        # -------- Convolutional backbone --------
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2),  # 48x48
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2),  # 24x24
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+
+            nn.AdaptiveAvgPool2d((1, 1))  # 128 x 1 x 1
+        )
+
+        # -------- Embedding head --------
+        self.embedding = nn.Linear(128, embedding_dim)
+
+        # -------- Temporary classifier (used ONLY for CNN training) --------
+        self.classifier = nn.Linear(embedding_dim, num_classes)
+
+    def forward(self, x, return_embedding: bool = False):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)  # flatten
+
+        embedding = self.embedding(x)
+        embedding = F.relu(embedding)
+
+        if return_embedding:
+            return embedding
+
+        logits = self.classifier(embedding)
+        return logits
+
+```
+
+## File: src/classical/__init__.py
 
 ```py
 
 ```
 
-## File: src/quantum/isdo/evaluate_isdo.py
+## File: src/experiments/__init__.py
+
+```py
+
+```
+
+## File: src/experiments/iqc/consolidate_memory.py
 
 ```py
 import os
 import numpy as np
-from sklearn.metrics import accuracy_score
 
-from src.quantum.isdo.isdo_classifier import ISDOClassifier
 from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
-BASE_ROOT, PATHS = load_paths()
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.training.winner_take_all_trainer import WinnerTakeAllTrainer
+from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
+from src.IQC.interference.exact_backend import Exact_Backend
 
+
+# -------------------------------------------------
+# Reproducibility
+# -------------------------------------------------
+set_seed(42)
+
+
+# -------------------------------------------------
+# Load paths
+# -------------------------------------------------
+_, PATHS = load_paths()
 EMBED_DIR = PATHS["embeddings"]
-PROTO_DIR = PATHS["class_prototypes"]
-K = int(PATHS["class_count"]["K"])
+os.makedirs(EMBED_DIR, exist_ok=True)
 
+
+# -------------------------------------------------
+# Load embeddings (TRAIN SPLIT)
+# -------------------------------------------------
 X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
 
-test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+X_train = X[train_idx]
+y_train = y[train_idx]
 
-X_test = X[test_idx]
-y_test = y[test_idx]
+print("Loaded train embeddings:", X_train.shape)
 
-clf = ISDOClassifier(PROTO_DIR, K)
-y_pred = clf.predict(X_test)
 
-acc = accuracy_score(y_test, y_pred)
-print(f"ISDO Accuracy (test): {acc:.4f}")
+# -------------------------------------------------
+# Prepare dataset
+# -------------------------------------------------
+dataset = [
+    (embedding_to_state(x), int(label))
+    for x, label in zip(X_train, y_train)
+]
 
+# shuffle (important for consolidation)
+rng = np.random.default_rng(42)
+perm = rng.permutation(len(dataset))
+dataset = [dataset[i] for i in perm]
+
+
+# -------------------------------------------------
+# 🔒 LOAD MEMORY BANK FROM REGIME 3-C
+# -------------------------------------------------
+# IMPORTANT:
+# This must be the SAME memory_bank produced by Regime 3-C
+from src.IQC.memory.memory_bank import MemoryBank
+import pickle
+
+MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
+
+with open(MEMORY_PATH, "rb") as f:
+    memory_bank = pickle.load(f)
+
+print("Loaded memory bank with",
+      len(memory_bank.class_states),
+      "memories")
+
+
+# -------------------------------------------------
+# 🔁 CONSOLIDATION PHASE (NO GROWTH)
+# -------------------------------------------------
+# Use Regime 3-A trainer:
+# - updates memories
+# - NO spawning logic
+trainer = WinnerTakeAllTrainer(
+    memory_bank=memory_bank,
+    eta=0.05      # slightly smaller eta for stabilization
+)
+
+acc_train = trainer.train(dataset)
+print("Consolidation pass accuracy:", acc_train)
+print("Updates during consolidation:", trainer.num_updates)
+
+
+# -------------------------------------------------
+# 📊 FINAL EVALUATION (Regime 3-B inference)
+# -------------------------------------------------
+classifier = WeightedVoteClassifier(memory_bank)
+
+correct = 0
+for psi, y in dataset:
+    if classifier.predict(psi) == y:
+        correct += 1
+
+final_acc = correct / len(dataset)
+print("FINAL Regime 3-C accuracy:", final_acc)
+
+
+### output
 """
-ISDO Accuracy (test): 0.8840
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Loaded memory bank with 22 memories
+Consolidation pass accuracy: 0.8048571428571428
+Updates during consolidation: 683
+FINAL Regime 3-C accuracy: 0.884
+"""
+
+```
+
+## File: src/experiments/iqc/train_perceptron.py
+
+```py
+import numpy as np
+import os
+
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.training.online_perceptron_trainer import OnlinePerceptronTrainer
+from src.IQC.training.metrics import summarize_training
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+os.makedirs(EMBED_DIR, exist_ok=True)
+
+# ----------------------------
+# Load embeddings (TRAIN ONLY)
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded train embeddings:", X_train.shape)
+
+
+def main():
+
+    dataset = [
+        (embedding_to_state(x), int(label))
+        for x, label in zip(X_train, y_train)
+    ]
+
+    # bootstrap initialization (important!)
+    chi0 = np.zeros_like(dataset[0][0])
+    for psi, label in dataset[:10]:
+        chi0 += label * psi
+    chi0 = chi0 / np.linalg.norm(chi0)
+
+    class_state = ClassState(chi0)
+    trainer = OnlinePerceptronTrainer(class_state, eta=0.1)
+
+    acc = trainer.train(dataset)
+    stats = summarize_training(trainer.history)
+
+    print("Final accuracy:", acc)
+    print("Training stats:", stats)
+
+
+if __name__ == "__main__":
+    main()
+
+### output 
+"""
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Final accuracy: 0.8562857142857143
+Training stats: {'mean_margin': 0.14930659062683652, 'min_margin': -0.7069261085786833, 'num_updates': 503, 'update_rate': 0.1437142857142857}
 """
 ```
 
-## File: src/quantum/isdo/isdo_classifier.py
+## File: src/experiments/iqc/train_adaptive_memory.py
 
 ```py
 import os
 import numpy as np
+from collections import Counter
 
-class ISDOClassifier:
-    def __init__(self, proto_dir, K):
-        self.proto_dir = proto_dir
-        self.K = K
-        self.prototypes = {
-            0: [np.load(os.path.join(proto_dir, f"K{K}/class0_proto{i}.npy")) for i in range(K)],
-            1: [np.load(os.path.join(proto_dir, f"K{K}/class1_proto{i}.npy")) for i in range(K)],
-        }
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
-    def predict_one(self, psi):
-        A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])
-        A1 = sum(np.vdot(p, psi) for p in self.prototypes[1])
-        return 1 if np.real(A0 - A1) < 0 else 0
+from src.IQC.states.class_state import ClassState
+from src.IQC.encoding.embedding_to_state import embedding_to_state
+from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.interference.exact_backend import Exact_Backend
+from src.IQC.interference.oracle_backend import Oracle_Backend
 
-    def predict(self, X):
-        return np.array([self.predict_one(x) for x in X])
+from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
+from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
+import pickle
 
+
+# -------------------------------------------------
+# Reproducibility
+# -------------------------------------------------
+set_seed(42)
+
+
+# -------------------------------------------------
+# Load paths
+# -------------------------------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
+
+os.makedirs(EMBED_DIR, exist_ok=True)
+os.makedirs(PATHS["artifacts"], exist_ok=True)
+
+# -------------------------------------------------
+# Load embeddings (TRAIN SPLIT)
+# -------------------------------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded train embeddings:", X_train.shape)
+
+
+# -------------------------------------------------
+# Prepare dataset (same as Regime 2 / 3-A / 3-B)
+# -------------------------------------------------
+dataset = [
+    (embedding_to_state(x), int(label))
+    for x, label in zip(X_train, y_train)
+]
+
+# shuffle (important for online + growth)
+rng = np.random.default_rng(42)
+perm = rng.permutation(len(dataset))
+dataset = [dataset[i] for i in perm]
+
+
+# -------------------------------------------------
+# Initialize memory bank (M = 3)
+# -------------------------------------------------
+d = dataset[0][0].shape[0]
+
+class_states = []
+for _ in range(3):
+    v = np.random.randn(d)
+    v /= np.linalg.norm(v)
+    class_states.append(ClassState(v))
+
+backend = Exact_Backend()
+backend_hadamard = Oracle_Backend()
+
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
+
+print("Initial number of memories:", len(memory_bank.class_states))
+
+
+# -------------------------------------------------
+# Train Regime 3-C (percentile-based τ)
+# -------------------------------------------------
+trainer = AdaptiveMemoryTrainer(
+    memory_bank=memory_bank,
+    eta=0.1,
+    percentile=5,       # τ = 5th percentile of margins
+    tau_abs = -0.121,
+    margin_window=500   # sliding window for stability
+)
+
+trainer.train(dataset)
+
+print("Training finished.")
+print("Number of memories after training:", len(memory_bank.class_states))
+print("Number of spawned memories:", trainer.num_spawns)
+print("Number of updates:", trainer.num_updates)
+
+
+# -------------------------------------------------
+# Evaluate using Regime 3-B inference
+# -------------------------------------------------
+classifier = WeightedVoteClassifier(memory_bank)
+
+correct = 0
+for psi, y in dataset:
+    if classifier.predict(psi) == y:
+        correct += 1
+
+acc_3c = correct / len(dataset)
+print("Regime 3-C accuracy (3-B inference):", acc_3c)
+
+
+# -------------------------------------------------
+# Optional diagnostics
+# -------------------------------------------------
+print("Final memory count:", len(memory_bank.class_states))
+
+with open(MEMORY_PATH, "wb") as f:
+    pickle.dump(memory_bank, f)
+
+print("Saved Regime 3-C memory bank.")
+
+### output
+"""
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Initial number of memories: 3
+Training finished.
+Number of memories after training: 22
+Number of spawned memories: 19
+Number of updates: 429
+Regime 3-C accuracy (3-B inference): 0.788
+Final memory count: 22
+Saved Regime 3-C memory bank.
+"""
 ```
 
-## File: src/quantum/isdo/__init__.py
+## File: src/experiments/iqc/verify_transition_backend.py
+
+```py
+import numpy as np
+
+from src.IQC.interference.exact_backend import Exact_Backend
+from src.IQC.interference.transition_backend import Transition_Backend
+
+
+def random_state(n):
+    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
+    v /= np.linalg.norm(v)
+    return v
+
+
+def sign(x):
+    return 1 if x >= 0 else -1
+
+
+np.random.seed(0)
+
+math_backend = Exact_Backend()
+transition_backend = Transition_Backend()
+
+n = 3  # small, exact verification
+num_tests = 50
+
+sign_agree = 0
+vals = []
+
+for _ in range(num_tests):
+    chi = random_state(n)
+    psi = random_state(n)
+
+    s_math = math_backend.score(chi, psi)
+    s_transition = transition_backend.score(chi, psi)
+
+    vals.append((s_math, s_transition))
+
+    if sign(s_math) == sign(s_transition):
+        sign_agree += 1
+
+print("Sign agreement:", sign_agree, "/", num_tests)
+print("Mean abs error:", np.mean([abs(a - b) for a, b in vals]))
+
+## output
+"""
+Sign agreement: 50 / 50
+Mean abs error: 1.3332529524845427e-14
+"""
+```
+
+## File: src/experiments/iqc/__init__.py
 
 ```py
 
 ```
 
-## File: src/quantum/isdo/isdo_K_sweep/evaluate_isdo_k_sweep.py
+## File: src/experiments/isdo/evaluate_isdo_k_sweep.py
 
 ```py
 import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from src.quantum.isdo.isdo_classifier import ISDOClassifier
+from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
 from src.utils.paths import load_paths
 import matplotlib.pyplot as plt
 
@@ -1171,8 +1714,8 @@ y_test = y[test_idx]
 
 accuracy = []
 for K in PATHS["class_count"]["K_values"]:
-    proto_dir = os.path.join(PROTO_BASE, f"K{K}")
-    clf = ISDOClassifier(proto_dir, K)
+    #proto_dir = os.path.join(PROTO_BASE, f"K{K}")
+    clf = StaticISDOClassifier(PROTO_BASE, K)
 
     y_pred = clf.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
@@ -1201,7 +1744,167 @@ plt.grid(True)
 plt.savefig(os.path.join(PATHS["figures"], "isdo_k_sweep.png"))
 ```
 
-## File: src/quantum/isdo/isdo_K_sweep/calculate_isdo_k_sweep.py
+## File: src/experiments/isdo/evaluate_transition_isdo.py
+
+```py
+"""
+Comparison of ISDO Circuit Implementations
+
+This script demonstrates three approaches:
+1. Circuit A: Conceptual (Oracle model) - for pedagogy only
+2. Circuit B: Reflection-based - gives quadratic fidelity
+3. Circuit B': Transition-based - CORRECT linear ISDO
+
+Only Circuit B' gives the true ISDO observable: Re⟨χ|ψ⟩
+"""
+
+import numpy as np
+from src.ISDO.circuits.transition_isdo import run, verify
+
+
+def test_all_circuits():
+    """
+    Test all three circuit implementations and compare results
+    """
+    # Create two test states
+    psi = np.array([0.6, 0.8, 0.0, 0.0], dtype=np.complex128)
+    chi = np.array([0.8, 0.6, 0.0, 0.0], dtype=np.complex128)
+    
+    # Normalize
+    psi = psi / np.linalg.norm(psi)
+    chi = chi / np.linalg.norm(chi)
+    
+    # Expected ISDO value: Re⟨χ|ψ⟩
+    expected_isdo = np.real(np.vdot(chi, psi))
+    
+    # Expected RFC (quadratic): 1 - 2|⟨χ|ψ⟩|²
+    inner_product_magnitude_sq = np.abs(np.vdot(chi, psi))**2
+    expected_rfc = 1 - 2 * inner_product_magnitude_sq
+    
+    print("=" * 70)
+    print("ISDO CIRCUIT COMPARISON")
+    print("=" * 70)
+    print(f"\n|ψ⟩ = {psi}")
+    print(f"|χ⟩ = {chi}")
+    print(f"\n⟨χ|ψ⟩ = {np.vdot(chi, psi)}")
+    print(f"|⟨χ|ψ⟩|² = {inner_product_magnitude_sq}")
+    print()
+    
+    # Circuit B': Transition-based (CORRECT)
+    print("-" * 70)
+    print("Circuit B': Transition-Based Interference (CORRECT)")
+    print("-" * 70)
+    print("Purpose: CORRECT physical ISDO implementation")
+    print("Observable: Re⟨χ|ψ⟩ (linear, signed, phase-sensitive)")
+    print("Status: Use this for all hardware and claims")
+    try:
+        result_b_prime = run(psi, chi)
+        print(f"Result:   {result_b_prime:.6f}")
+        print(f"Expected: {expected_isdo:.6f}")
+        print(f"Match:    {np.allclose(result_b_prime, expected_isdo, atol=1e-6)}")
+        
+        print("\nRunning full verification...")
+        verify(psi, chi)
+    except Exception as e:
+        print(f"Error: {e}")
+    print()
+    
+    # Summary
+    print("=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+    print(f"True ISDO (Re⟨χ|ψ⟩):           {expected_isdo:.6f}")
+    print(f"RFC alternative (1-2|⟨χ|ψ⟩|²): {expected_rfc:.6f}")
+    print()
+    print("✓ Circuit A: Conceptual/oracle model only")
+    print("✗ Circuit B: Gives RFC (quadratic), not ISDO")
+    print("✓ Circuit B': CORRECT implementation - USE THIS")
+    print()
+
+
+def test_different_states():
+    """
+    Test with multiple state pairs to show the difference
+    """
+    print("\n" + "=" * 70)
+    print("TESTING MULTIPLE STATE PAIRS")
+    print("=" * 70)
+    
+    test_cases = [
+        # Same states
+        (np.array([1.0, 0, 0, 0]), np.array([1.0, 0, 0, 0])),
+        # Orthogonal states
+        (np.array([1.0, 0, 0, 0]), np.array([0, 1.0, 0, 0])),
+        # Opposite states
+        (np.array([1.0, 0, 0, 0]), np.array([-1.0, 0, 0, 0])),
+        # General case
+        (np.array([0.6, 0.8, 0, 0]), np.array([0.8, -0.6, 0, 0])),
+    ]
+    
+    for i, (psi, chi) in enumerate(test_cases, 1):
+        psi = psi / np.linalg.norm(psi)
+        chi = chi / np.linalg.norm(chi)
+        
+        true_isdo = np.real(np.vdot(chi, psi))
+        rfc = 1 - 2 * np.abs(np.vdot(chi, psi))**2
+        
+        try:
+            measured_b_prime = run(psi, chi)
+            
+            print(f"\nTest {i}:")
+            print(f"  True ISDO (Re⟨χ|ψ⟩):    {true_isdo:+.4f}")
+            print(f"  Circuit B' (transition):{measured_b_prime:+.4f} ✓")
+        except Exception as e:
+            print(f"\nTest {i}: Error - {e}")
+
+
+if __name__ == "__main__":
+    test_all_circuits()
+    test_different_states()
+```
+
+## File: src/experiments/isdo/evaluate_static_isdo.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.ISDO.baselines.static_isdo_classifier  import StaticISDOClassifier
+from src.utils.paths import load_paths
+
+BASE_ROOT, PATHS = load_paths()
+
+EMBED_DIR = PATHS["embeddings"]
+PROTO_DIR = PATHS["class_prototypes"]
+K = int(PATHS["class_count"]["K"])
+
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X_test = X[test_idx]
+y_test = y[test_idx]
+
+clf = StaticISDOClassifier(PROTO_DIR, K)
+y_pred = clf.predict(X_test)
+
+acc = accuracy_score(y_test, y_pred)
+print(f"ISDO Accuracy (test): {acc:.4f}")
+
+"""
+ISDO Accuracy (test): 0.8840
+"""
+```
+
+## File: src/experiments/isdo/__init__.py
+
+```py
+
+```
+
+## File: src/experiments/isdo/prototype/calculate_prototype.py
 
 ```py
 import os
@@ -1280,690 +1983,7 @@ for K in K_VALUES:
 
 ```
 
-## File: src/quantum/isdo/isdo_K_sweep/__init__.py
-
-```py
-
-```
-
-## File: src/quantum/isdo/isdo_circuit_test/test_isdo_circuits_v2.py
-
-```py
-"""
-Comparison of ISDO Circuit Implementations
-
-This script demonstrates three approaches:
-1. Circuit A: Conceptual (Oracle model) - for pedagogy only
-2. Circuit B: Reflection-based - gives quadratic fidelity
-3. Circuit B': Transition-based - CORRECT linear ISDO
-
-Only Circuit B' gives the true ISDO observable: Re⟨χ|ψ⟩
-"""
-
-import numpy as np
-from src.quantum.isdo.circuits.circuit_b_prime_transition import run_isdo_circuit_b_prime, verify_isdo_b_prime
-
-
-def test_all_circuits():
-    """
-    Test all three circuit implementations and compare results
-    """
-    # Create two test states
-    psi = np.array([0.6, 0.8, 0.0, 0.0], dtype=np.complex128)
-    chi = np.array([0.8, 0.6, 0.0, 0.0], dtype=np.complex128)
-    
-    # Normalize
-    psi = psi / np.linalg.norm(psi)
-    chi = chi / np.linalg.norm(chi)
-    
-    # Expected ISDO value: Re⟨χ|ψ⟩
-    expected_isdo = np.real(np.vdot(chi, psi))
-    
-    # Expected RFC (quadratic): 1 - 2|⟨χ|ψ⟩|²
-    inner_product_magnitude_sq = np.abs(np.vdot(chi, psi))**2
-    expected_rfc = 1 - 2 * inner_product_magnitude_sq
-    
-    print("=" * 70)
-    print("ISDO CIRCUIT COMPARISON")
-    print("=" * 70)
-    print(f"\n|ψ⟩ = {psi}")
-    print(f"|χ⟩ = {chi}")
-    print(f"\n⟨χ|ψ⟩ = {np.vdot(chi, psi)}")
-    print(f"|⟨χ|ψ⟩|² = {inner_product_magnitude_sq}")
-    print()
-    
-    # Circuit B': Transition-based (CORRECT)
-    print("-" * 70)
-    print("Circuit B': Transition-Based Interference (CORRECT)")
-    print("-" * 70)
-    print("Purpose: CORRECT physical ISDO implementation")
-    print("Observable: Re⟨χ|ψ⟩ (linear, signed, phase-sensitive)")
-    print("Status: Use this for all hardware and claims")
-    try:
-        result_b_prime = run_isdo_circuit_b_prime(psi, chi)
-        print(f"Result:   {result_b_prime:.6f}")
-        print(f"Expected: {expected_isdo:.6f}")
-        print(f"Match:    {np.allclose(result_b_prime, expected_isdo, atol=1e-6)}")
-        
-        print("\nRunning full verification...")
-        verify_isdo_b_prime(psi, chi)
-    except Exception as e:
-        print(f"Error: {e}")
-    print()
-    
-    # Summary
-    print("=" * 70)
-    print("SUMMARY")
-    print("=" * 70)
-    print(f"True ISDO (Re⟨χ|ψ⟩):           {expected_isdo:.6f}")
-    print(f"RFC alternative (1-2|⟨χ|ψ⟩|²): {expected_rfc:.6f}")
-    print()
-    print("✓ Circuit A: Conceptual/oracle model only")
-    print("✗ Circuit B: Gives RFC (quadratic), not ISDO")
-    print("✓ Circuit B': CORRECT implementation - USE THIS")
-    print()
-
-
-def test_different_states():
-    """
-    Test with multiple state pairs to show the difference
-    """
-    print("\n" + "=" * 70)
-    print("TESTING MULTIPLE STATE PAIRS")
-    print("=" * 70)
-    
-    test_cases = [
-        # Same states
-        (np.array([1.0, 0, 0, 0]), np.array([1.0, 0, 0, 0])),
-        # Orthogonal states
-        (np.array([1.0, 0, 0, 0]), np.array([0, 1.0, 0, 0])),
-        # Opposite states
-        (np.array([1.0, 0, 0, 0]), np.array([-1.0, 0, 0, 0])),
-        # General case
-        (np.array([0.6, 0.8, 0, 0]), np.array([0.8, -0.6, 0, 0])),
-    ]
-    
-    for i, (psi, chi) in enumerate(test_cases, 1):
-        psi = psi / np.linalg.norm(psi)
-        chi = chi / np.linalg.norm(chi)
-        
-        true_isdo = np.real(np.vdot(chi, psi))
-        rfc = 1 - 2 * np.abs(np.vdot(chi, psi))**2
-        
-        try:
-            measured_b_prime = run_isdo_circuit_b_prime(psi, chi)
-            
-            print(f"\nTest {i}:")
-            print(f"  True ISDO (Re⟨χ|ψ⟩):    {true_isdo:+.4f}")
-            print(f"  Circuit B' (transition):{measured_b_prime:+.4f} ✓")
-        except Exception as e:
-            print(f"\nTest {i}: Error - {e}")
-
-
-if __name__ == "__main__":
-    test_all_circuits()
-    test_different_states()
-```
-
-## File: src/quantum/isdo/isdo_circuit_test/__init__.py
-
-```py
-
-```
-
-## File: src/quantum/isdo/circuits/circuit_b_prime_transition.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import UnitaryGate
-from src.utils.common import build_transition_unitary
-
-def build_isdo_circuit_b_prime(psi, chi):
-    """
-    ISDO Circuit B': Transition-based interference (CORRECT PHYSICAL IMPLEMENTATION)
-    
-    This circuit measures Re⟨χ|ψ⟩ using a controlled transition unitary.
-    
-    Circuit structure:
-        Ancilla: |0⟩ ──H──●────H──M
-                           │
-        Data:    |ψ⟩ ─────U_χψ────
-    
-    Where U_χψ is the transition unitary: U_χψ |ψ⟩ = |χ⟩
-    
-    This produces LINEAR interference, not quadratic!
-    """
-    n = int(np.log2(len(psi)))
-    qc = QuantumCircuit(1 + n, 1)
-    
-    anc = 0
-    data = list(range(1, n + 1))
-    
-    # Prepare |ψ⟩ on data qubits (in practice, this comes from previous computation)
-    # For simulation, we'll use state preparation
-    from qiskit.circuit.library import StatePreparation
-    qc.append(StatePreparation(psi), data)
-    
-    # Hadamard on ancilla
-    qc.h(anc)
-    
-    # Controlled transition unitary
-    U_chi_psi = build_transition_unitary(psi, chi)
-    qc.append(U_chi_psi.control(1), [anc] + data)
-    
-    # Final Hadamard
-    qc.h(anc)
-    
-    # Measure ancilla
-    qc.measure(anc, 0)
-    
-    return qc
-
-
-def run_isdo_circuit_b_prime(psi, chi):
-    """
-    Exact (statevector) evaluation of ⟨Z⟩ which gives Re⟨χ|ψ⟩
-    
-    This is the CORRECT physical implementation of ISDO.
-    """
-    qc = build_isdo_circuit_b_prime(psi, chi)
-    qc_no_meas = qc.remove_final_measurements(inplace=False)
-    sv = Statevector.from_instruction(qc_no_meas)
-    z_exp = sv.expectation_value(Pauli('Z'), [0]).real
-    return z_exp
-
-
-def verify_isdo_b_prime(psi, chi):
-    """
-    Verify that the circuit correctly computes Re⟨χ|ψ⟩
-    """
-    # Normalize inputs
-    psi = np.asarray(psi, dtype=np.complex128)
-    chi = np.asarray(chi, dtype=np.complex128)
-    psi = psi / np.linalg.norm(psi)
-    chi = chi / np.linalg.norm(chi)
-    
-    # Expected value
-    expected = np.real(np.vdot(chi, psi))
-    
-    # Circuit result
-    measured = run_isdo_circuit_b_prime(psi, chi)
-    
-    # Check
-    is_correct = np.allclose(measured, expected, atol=1e-10)
-    
-    print(f"Expected:  {expected}")
-    print(f"Measured:  {measured}")
-    print(f"Correct:   {is_correct}")
-    
-    return is_correct
-```
-
-## File: src/quantum/isdo/circuits/__init__.py
-
-```py
-
-```
-
-## File: src/classical/cnn.py
-
-```py
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
-class PCamCNN(nn.Module):
-    """
-    Lightweight CNN for PCam feature extraction.
-    Produces low-dimensional embeddings suitable for quantum encoding.
-    """
-
-    def __init__(self, embedding_dim: int = 32, num_classes: int = 2):
-        super().__init__()
-
-        # -------- Convolutional backbone --------
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),  # 48x48
-
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),  # 24x24
-
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-
-            nn.AdaptiveAvgPool2d((1, 1))  # 128 x 1 x 1
-        )
-
-        # -------- Embedding head --------
-        self.embedding = nn.Linear(128, embedding_dim)
-
-        # -------- Temporary classifier (used ONLY for CNN training) --------
-        self.classifier = nn.Linear(embedding_dim, num_classes)
-
-    def forward(self, x, return_embedding: bool = False):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)  # flatten
-
-        embedding = self.embedding(x)
-        embedding = F.relu(embedding)
-
-        if return_embedding:
-            return embedding
-
-        logits = self.classifier(embedding)
-        return logits
-
-```
-
-## File: src/classical/__init__.py
-
-```py
-
-```
-
-## File: src/experiments/__init__.py
-
-```py
-
-```
-
-## File: src/experiments/iqc/run_regime2.py
-
-```py
-import numpy as np
-import os
-
-from src.IQC.states.class_state import ClassState
-from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.training.regime2_trainer import Regime2Trainer
-from src.IQC.training.metrics import summarize_training
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings (TRAIN ONLY)
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-
-def main():
-
-    dataset = [
-        (embedding_to_state(x), int(label))
-        for x, label in zip(X_train, y_train)
-    ]
-
-    # bootstrap initialization (important!)
-    chi0 = np.zeros_like(dataset[0][0])
-    for psi, label in dataset[:10]:
-        chi0 += label * psi
-    chi0 = chi0 / np.linalg.norm(chi0)
-
-    class_state = ClassState(chi0)
-    trainer = Regime2Trainer(class_state, eta=0.1)
-
-    acc = trainer.train(dataset)
-    stats = summarize_training(trainer.history)
-
-    print("Final accuracy:", acc)
-    print("Training stats:", stats)
-
-
-if __name__ == "__main__":
-    main()
-
-### output 
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Final accuracy: 0.8562857142857143
-Training stats: {'mean_margin': 0.14930659062683652, 'min_margin': -0.7069261085786833, 'num_updates': 503, 'update_rate': 0.1437142857142857}
-"""
-```
-
-## File: src/experiments/iqc/verify_transition_backend.py
-
-```py
-import numpy as np
-
-from src.IQC.interference.math_backend import MathInterferenceBackend
-from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
-
-
-def random_state(n):
-    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
-    v /= np.linalg.norm(v)
-    return v
-
-
-def sign(x):
-    return 1 if x >= 0 else -1
-
-
-np.random.seed(0)
-
-math_backend = MathInterferenceBackend()
-transition_backend = TransitionInterferenceBackend()
-
-n = 3  # small, exact verification
-num_tests = 50
-
-sign_agree = 0
-vals = []
-
-for _ in range(num_tests):
-    chi = random_state(n)
-    psi = random_state(n)
-
-    s_math = math_backend.score(chi, psi)
-    s_transition = transition_backend.score(chi, psi)
-
-    vals.append((s_math, s_transition))
-
-    if sign(s_math) == sign(s_transition):
-        sign_agree += 1
-
-print("Sign agreement:", sign_agree, "/", num_tests)
-print("Mean abs error:", np.mean([abs(a - b) for a, b in vals]))
-
-## output
-"""
-Sign agreement: 50 / 50
-Mean abs error: 1.3332529524845427e-14
-"""
-```
-
-## File: src/experiments/iqc/run_regime3c_consolidation.py
-
-```py
-import os
-import numpy as np
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.training.regime3a_trainer import Regime3ATrainer
-from src.IQC.inference.regime3b_classifier import Regime3BClassifier
-from src.IQC.interference.math_backend import MathInterferenceBackend
-
-
-# -------------------------------------------------
-# Reproducibility
-# -------------------------------------------------
-set_seed(42)
-
-
-# -------------------------------------------------
-# Load paths
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-os.makedirs(EMBED_DIR, exist_ok=True)
-
-
-# -------------------------------------------------
-# Load embeddings (TRAIN SPLIT)
-# -------------------------------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-
-# -------------------------------------------------
-# Prepare dataset
-# -------------------------------------------------
-dataset = [
-    (embedding_to_state(x), int(label))
-    for x, label in zip(X_train, y_train)
-]
-
-# shuffle (important for consolidation)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-
-# -------------------------------------------------
-# 🔒 LOAD MEMORY BANK FROM REGIME 3-C
-# -------------------------------------------------
-# IMPORTANT:
-# This must be the SAME memory_bank produced by Regime 3-C
-from src.IQC.memory.memory_bank import MemoryBank
-import pickle
-
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
-with open(MEMORY_PATH, "rb") as f:
-    memory_bank = pickle.load(f)
-
-print("Loaded memory bank with",
-      len(memory_bank.class_states),
-      "memories")
-
-
-# -------------------------------------------------
-# 🔁 CONSOLIDATION PHASE (NO GROWTH)
-# -------------------------------------------------
-# Use Regime 3-A trainer:
-# - updates memories
-# - NO spawning logic
-trainer = Regime3ATrainer(
-    memory_bank=memory_bank,
-    eta=0.05      # slightly smaller eta for stabilization
-)
-
-acc_train = trainer.train(dataset)
-print("Consolidation pass accuracy:", acc_train)
-print("Updates during consolidation:", trainer.num_updates)
-
-
-# -------------------------------------------------
-# 📊 FINAL EVALUATION (Regime 3-B inference)
-# -------------------------------------------------
-classifier = Regime3BClassifier(memory_bank)
-
-correct = 0
-for psi, y in dataset:
-    if classifier.predict(psi) == y:
-        correct += 1
-
-final_acc = correct / len(dataset)
-print("FINAL Regime 3-C accuracy:", final_acc)
-
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Loaded memory bank with 22 memories
-Consolidation pass accuracy: 0.8048571428571428
-Updates during consolidation: 683
-FINAL Regime 3-C accuracy: 0.884
-"""
-
-```
-
-## File: src/experiments/iqc/run_regime3c_v2.py
-
-```py
-import os
-import numpy as np
-from collections import Counter
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-from src.IQC.states.class_state import ClassState
-from src.IQC.encoding.embedding_to_state import embedding_to_state
-from src.IQC.memory.memory_bank import MemoryBank
-from src.IQC.interference.math_backend import MathInterferenceBackend
-from src.IQC.interference.circuit_backend_hadamard import HadamardInterferenceBackend
-
-from src.IQC.training.regime3c_trainer_v2 import Regime3CTrainer
-from src.IQC.inference.regime3b_classifier import Regime3BClassifier
-import pickle
-
-
-# -------------------------------------------------
-# Reproducibility
-# -------------------------------------------------
-set_seed(42)
-
-
-# -------------------------------------------------
-# Load paths
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-os.makedirs(PATHS["artifacts"], exist_ok=True)
-
-# -------------------------------------------------
-# Load embeddings (TRAIN SPLIT)
-# -------------------------------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-
-# -------------------------------------------------
-# Prepare dataset (same as Regime 2 / 3-A / 3-B)
-# -------------------------------------------------
-dataset = [
-    (embedding_to_state(x), int(label))
-    for x, label in zip(X_train, y_train)
-]
-
-# shuffle (important for online + growth)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-
-# -------------------------------------------------
-# Initialize memory bank (M = 3)
-# -------------------------------------------------
-d = dataset[0][0].shape[0]
-
-class_states = []
-for _ in range(3):
-    v = np.random.randn(d)
-    v /= np.linalg.norm(v)
-    class_states.append(ClassState(v))
-
-backend = MathInterferenceBackend()
-backend_hadamard = HadamardInterferenceBackend()
-
-memory_bank = MemoryBank(
-    class_states=class_states,
-    backend=backend
-)
-
-print("Initial number of memories:", len(memory_bank.class_states))
-
-
-# -------------------------------------------------
-# Train Regime 3-C (percentile-based τ)
-# -------------------------------------------------
-trainer = Regime3CTrainer(
-    memory_bank=memory_bank,
-    eta=0.1,
-    percentile=5,       # τ = 5th percentile of margins
-    tau_abs = -0.121,
-    margin_window=500   # sliding window for stability
-)
-
-trainer.train(dataset)
-
-print("Training finished.")
-print("Number of memories after training:", len(memory_bank.class_states))
-print("Number of spawned memories:", trainer.num_spawns)
-print("Number of updates:", trainer.num_updates)
-
-
-# -------------------------------------------------
-# Evaluate using Regime 3-B inference
-# -------------------------------------------------
-classifier = Regime3BClassifier(memory_bank)
-
-correct = 0
-for psi, y in dataset:
-    if classifier.predict(psi) == y:
-        correct += 1
-
-acc_3c = correct / len(dataset)
-print("Regime 3-C accuracy (3-B inference):", acc_3c)
-
-
-# -------------------------------------------------
-# Optional diagnostics
-# -------------------------------------------------
-print("Final memory count:", len(memory_bank.class_states))
-
-with open(MEMORY_PATH, "wb") as f:
-    pickle.dump(memory_bank, f)
-
-print("Saved Regime 3-C memory bank.")
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Initial number of memories: 3
-Training finished.
-Number of memories after training: 22
-Number of spawned memories: 19
-Number of updates: 429
-Regime 3-C accuracy (3-B inference): 0.788
-Final memory count: 22
-Saved Regime 3-C memory bank.
-"""
-```
-
-## File: src/experiments/iqc/__init__.py
+## File: src/experiments/isdo/prototype/__init__.py
 
 ```py
 
@@ -1975,12 +1995,14 @@ Saved Regime 3-C memory bank.
 
 ```
 
-## File: src/IQC/learning/regime2_update.py
+## File: src/IQC/learning/perceptron_update.py
 
 ```py
 import numpy as np
+from src.ISDO.observables.isdo import isdo_observable
 
-def regime2_update(
+
+def perceptron_update(
     chi: np.ndarray,
     psi: np.ndarray,
     y: int,
@@ -1994,7 +2016,7 @@ def regime2_update(
     else:
         chi <- normalize(chi + eta * y * psi)
     """
-    s = float(np.real(np.vdot(chi, psi)))
+    s = isdo_observable(chi, psi)
 
     if y * s >= 0:
         return chi, False  # correct classification
@@ -2017,6 +2039,8 @@ def regime2_update(
 
 ```py
 import numpy as np
+from src.ISDO.observables.isdo import isdo_observable
+
 
 def normalize(v: np.ndarray) -> np.ndarray:
     norm = np.linalg.norm(v)
@@ -2038,7 +2062,7 @@ class ClassState:
         """
         ISDO score: Re <chi | psi>
         """
-        return float(np.real(np.vdot(self.vector, psi)))
+        return isdo_observable(self.vector, psi)
 
     def update(self, delta: np.ndarray):
         """
@@ -2048,97 +2072,73 @@ class ClassState:
 
 ```
 
-## File: src/IQC/states/state_init.py
-
-```py
-
-```
-
 ## File: src/IQC/states/__init__.py
 
 ```py
 
 ```
 
-## File: src/IQC/training/regime2_trainer.py
+## File: src/IQC/training/winner_take_all_trainer.py
 
 ```py
-import numpy as np
-from ..learning.regime2_update import regime2_update
-from ..observable.isdo_score import isdo_score
+from ..learning.perceptron_update import perceptron_update
 
-
-class Regime2Trainer:
+class WinnerTakeAllTrainer:
     """
-    Online Interference Quantum Classifier (Regime 2)
-
-    Fixed circuit.
-    Trainable object: |chi>
+    Regime 3-A: Winner-Takes-All IQC
+    Only the winning memory is updated.
     """
 
-    def __init__(self, class_state, eta: float):
-        self.class_state = class_state
+    def __init__(self, memory_bank, eta):
+        self.memory_bank = memory_bank
         self.eta = eta
-
-        # logs
         self.num_updates = 0
+
         self.history = {
+            "winner_idx": [],
             "scores": [],
-            "margins": [],
             "updates": [],
         }
 
-    def step(self, psi: np.ndarray, y: int):
-        """
-        Process a single training example.
-        """
-        chi_vec = self.class_state.vector
-        s = isdo_score(chi_vec, psi)
-        margin = y * s
-        y_hat = 1 if s >= 0 else -1
+    def step(self, psi, y):
+        idx, score = self.memory_bank.winner(psi)
+        cs = self.memory_bank.class_states[idx]
 
-        chi_new, updated = regime2_update(
-            chi_vec, psi, y, self.eta
+        chi_new, updated = perceptron_update(
+            cs.vector, psi, y, self.eta
         )
 
         if updated:
-            self.class_state.vector = chi_new
+            cs.vector = chi_new
             self.num_updates += 1
 
+        y_hat = 1 if score >= 0 else -1
+
         # logging
-        self.history["scores"].append(s)
-        self.history["margins"].append(margin)
+        self.history["winner_idx"].append(idx)
+        self.history["scores"].append(score)
         self.history["updates"].append(updated)
 
-        return y_hat, s, updated
+        return y_hat, idx, updated
 
     def train(self, dataset):
-        """
-        Single-pass online training.
-        dataset: iterable of (psi, y)
-        """
         correct = 0
-
         for psi, y in dataset:
             y_hat, _, _ = self.step(psi, y)
             if y_hat == y:
                 correct += 1
-
-        accuracy = correct / len(dataset)
-        return accuracy
+        return correct / len(dataset)
 
 ```
 
-## File: src/IQC/training/regime3c_trainer_v2.py
+## File: src/IQC/training/adaptive_memory_trainer.py
 
 ```py
 import numpy as np
 from collections import deque
+from ..learning.perceptron_update import perceptron_update
 
-from ..learning.regime2_update import regime2_update
-
-
-class Regime3CTrainer:
+class AdaptiveMemoryTrainer:
     """
     Regime 3-C: Dynamic Memory Growth with Percentile-based τ
     """
@@ -2198,7 +2198,7 @@ class Regime3CTrainer:
             idx, _ = self.memory_bank.winner(psi)
             cs = self.memory_bank.class_states[idx]
 
-            chi_new, updated = regime2_update(
+            chi_new, updated = perceptron_update(
                 cs.vector, psi, y, self.eta
             )
 
@@ -2221,56 +2221,72 @@ class Regime3CTrainer:
 
 ```
 
-## File: src/IQC/training/regime3a_trainer.py
+## File: src/IQC/training/online_perceptron_trainer.py
 
 ```py
-from ..learning.regime2_update import regime2_update
+import numpy as np
+from ..learning.perceptron_update import perceptron_update
+from src.ISDO.observables.isdo import isdo_observable
 
-class Regime3ATrainer:
+
+class OnlinePerceptronTrainer:
     """
-    Regime 3-A: Winner-Takes-All IQC
-    Only the winning memory is updated.
+    Online Interference Quantum Classifier (Regime 2)
+
+    Fixed circuit.
+    Trainable object: |chi>
     """
 
-    def __init__(self, memory_bank, eta):
-        self.memory_bank = memory_bank
+    def __init__(self, class_state, eta: float):
+        self.class_state = class_state
         self.eta = eta
-        self.num_updates = 0
 
+        # logs
+        self.num_updates = 0
         self.history = {
-            "winner_idx": [],
             "scores": [],
+            "margins": [],
             "updates": [],
         }
 
-    def step(self, psi, y):
-        idx, score = self.memory_bank.winner(psi)
-        cs = self.memory_bank.class_states[idx]
+    def step(self, psi: np.ndarray, y: int):
+        """
+        Process a single training example.
+        """
+        chi_vec = self.class_state.vector
+        s = isdo_observable(chi_vec, psi)
+        margin = y * s
+        y_hat = 1 if s >= 0 else -1
 
-        chi_new, updated = regime2_update(
-            cs.vector, psi, y, self.eta
+        chi_new, updated = perceptron_update(
+            chi_vec, psi, y, self.eta
         )
 
         if updated:
-            cs.vector = chi_new
+            self.class_state.vector = chi_new
             self.num_updates += 1
 
-        y_hat = 1 if score >= 0 else -1
-
         # logging
-        self.history["winner_idx"].append(idx)
-        self.history["scores"].append(score)
+        self.history["scores"].append(s)
+        self.history["margins"].append(margin)
         self.history["updates"].append(updated)
 
-        return y_hat, idx, updated
+        return y_hat, s, updated
 
     def train(self, dataset):
+        """
+        Single-pass online training.
+        dataset: iterable of (psi, y)
+        """
         correct = 0
+
         for psi, y in dataset:
             y_hat, _, _ = self.step(psi, y)
             if y_hat == y:
                 correct += 1
-        return correct / len(dataset)
+
+        accuracy = correct / len(dataset)
+        return accuracy
 
 ```
 
@@ -2293,25 +2309,6 @@ def summarize_training(history: dict):
 ```
 
 ## File: src/IQC/training/__init__.py
-
-```py
-
-```
-
-## File: src/IQC/observable/isdo_score.py
-
-```py
-import numpy as np
-
-def isdo_score(chi: np.ndarray, psi: np.ndarray) -> float:
-    """
-    Linear interference score: Re <chi | psi>
-    """
-    return float(np.real(np.vdot(chi, psi)))
-
-```
-
-## File: src/IQC/observable/__init__.py
 
 ```py
 
@@ -2348,7 +2345,139 @@ class MemoryBank:
 
 ```
 
-## File: src/IQC/interference/circuit_backend_hadamard.py
+## File: src/IQC/interference/base.py
+
+```py
+from abc import ABC, abstractmethod
+
+class InterferenceBackend(ABC):
+    """
+    Abstract interface for computing interference scores.
+    """
+
+    @abstractmethod
+    def score(self, chi, psi) -> float:
+        """
+        Return Re⟨chi | psi⟩ as a real scalar.
+        """
+        pass
+
+```
+
+## File: src/IQC/interference/transition_backend.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import UnitaryGate, StatePreparation  # ✅ Correct import
+from .base import InterferenceBackend
+
+
+class Transition_Backend(InterferenceBackend):
+    """
+    CORRECT physical Hadamard-test using transition unitary.
+    
+    This is the physically realizable ISDO implementation.
+    Computes Re⟨chi | psi⟩ using U_chi_psi = U_chi @ U_psi^dagger
+    
+    This should be used for all hardware experiments and claims.
+    """
+    
+    @staticmethod
+    def _statevector_to_unitary(vec):
+        """Build unitary that prepares vec from |0...0⟩"""
+        vec = np.asarray(vec, dtype=np.complex128)
+        vec = vec / np.linalg.norm(vec)
+        dim = len(vec)
+        
+        U = np.zeros((dim, dim), dtype=complex)
+        U[:, 0] = vec
+        
+        # Gram-Schmidt to complete the unitary
+        for i in range(1, dim):
+            v = np.zeros(dim, dtype=complex)
+            v[i] = 1.0
+            
+            for j in range(i):
+                v -= np.vdot(U[:, j], v) * U[:, j]
+            
+            v_norm = np.linalg.norm(v)
+            if v_norm > 1e-10:
+                U[:, i] = v / v_norm
+            else:
+                v = np.random.randn(dim) + 1j * np.random.randn(dim)
+                for j in range(i):
+                    v -= np.vdot(U[:, j], v) * U[:, j]
+                U[:, i] = v / np.linalg.norm(v)
+        
+        return U
+    
+    @staticmethod
+    def _build_transition_unitary(psi, chi):
+        """Build U_chi_psi = U_chi @ U_psi^dagger"""
+        U_psi = Transition_Backend._statevector_to_unitary(psi)
+        U_chi = Transition_Backend._statevector_to_unitary(chi)
+        
+        # Transition unitary
+        U_chi_psi = U_chi @ U_psi.conj().T
+        
+        return UnitaryGate(U_chi_psi)
+    
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+        
+        # Normalize
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+        
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+        
+        qc = QuantumCircuit(1 + n)
+        anc = 0
+        data = list(range(1, 1 + n))
+        
+        # Prepare |psi⟩ on data qubits
+        qc.append(StatePreparation(psi), data)
+        
+        # Hadamard on ancilla
+        qc.h(anc)
+        
+        # Controlled transition unitary
+        U_chi_psi = self._build_transition_unitary(psi, chi)
+        qc.append(U_chi_psi.control(1), [anc] + data)
+        
+        # Final Hadamard
+        qc.h(anc)
+        
+        # Get statevector and measure Z on ancilla
+        sv = Statevector.from_instruction(qc)
+        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
+        
+        return float(z_exp)
+```
+
+## File: src/IQC/interference/exact_backend.py
+
+```py
+import numpy as np
+from .base import InterferenceBackend
+
+class Exact_Backend(InterferenceBackend):
+    """
+    Numpy-based interference backend.
+    This reproduces existing behavior exactly.
+    """
+
+    def score(self, chi, psi) -> float:
+        return float(np.real(np.vdot(chi, psi)))
+
+```
+
+## File: src/IQC/interference/oracle_backend.py
 
 ```py
 import numpy as np
@@ -2358,7 +2487,7 @@ from qiskit.circuit.library import StatePreparation  # ✅ Correct import
 from .base import InterferenceBackend
 
 # If you also want the conceptual/oracle version:
-class HadamardInterferenceBackend(InterferenceBackend):
+class Oracle_Backend(InterferenceBackend):
     """
     CONCEPTUAL Hadamard-test using oracle state preparation.
     
@@ -2413,148 +2542,16 @@ class HadamardInterferenceBackend(InterferenceBackend):
         return float(z_exp)
 ```
 
-## File: src/IQC/interference/base.py
-
-```py
-from abc import ABC, abstractmethod
-
-class InterferenceBackend(ABC):
-    """
-    Abstract interface for computing interference scores.
-    """
-
-    @abstractmethod
-    def score(self, chi, psi) -> float:
-        """
-        Return Re⟨chi | psi⟩ as a real scalar.
-        """
-        pass
-
-```
-
-## File: src/IQC/interference/circuit_backend_transition.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import UnitaryGate, StatePreparation  # ✅ Correct import
-from .base import InterferenceBackend
-
-
-class TransitionInterferenceBackend(InterferenceBackend):
-    """
-    CORRECT physical Hadamard-test using transition unitary.
-    
-    This is the physically realizable ISDO implementation.
-    Computes Re⟨chi | psi⟩ using U_chi_psi = U_chi @ U_psi^dagger
-    
-    This should be used for all hardware experiments and claims.
-    """
-    
-    @staticmethod
-    def _statevector_to_unitary(vec):
-        """Build unitary that prepares vec from |0...0⟩"""
-        vec = np.asarray(vec, dtype=np.complex128)
-        vec = vec / np.linalg.norm(vec)
-        dim = len(vec)
-        
-        U = np.zeros((dim, dim), dtype=complex)
-        U[:, 0] = vec
-        
-        # Gram-Schmidt to complete the unitary
-        for i in range(1, dim):
-            v = np.zeros(dim, dtype=complex)
-            v[i] = 1.0
-            
-            for j in range(i):
-                v -= np.vdot(U[:, j], v) * U[:, j]
-            
-            v_norm = np.linalg.norm(v)
-            if v_norm > 1e-10:
-                U[:, i] = v / v_norm
-            else:
-                v = np.random.randn(dim) + 1j * np.random.randn(dim)
-                for j in range(i):
-                    v -= np.vdot(U[:, j], v) * U[:, j]
-                U[:, i] = v / np.linalg.norm(v)
-        
-        return U
-    
-    @staticmethod
-    def _build_transition_unitary(psi, chi):
-        """Build U_chi_psi = U_chi @ U_psi^dagger"""
-        U_psi = TransitionInterferenceBackend._statevector_to_unitary(psi)
-        U_chi = TransitionInterferenceBackend._statevector_to_unitary(chi)
-        
-        # Transition unitary
-        U_chi_psi = U_chi @ U_psi.conj().T
-        
-        return UnitaryGate(U_chi_psi)
-    
-    def score(self, chi, psi) -> float:
-        chi = np.asarray(chi, dtype=np.complex128)
-        psi = np.asarray(psi, dtype=np.complex128)
-        
-        # Normalize
-        chi = chi / np.linalg.norm(chi)
-        psi = psi / np.linalg.norm(psi)
-        
-        assert chi.shape == psi.shape
-        n = int(np.log2(len(psi)))
-        assert 2**n == len(psi)
-        
-        qc = QuantumCircuit(1 + n)
-        anc = 0
-        data = list(range(1, 1 + n))
-        
-        # Prepare |psi⟩ on data qubits
-        qc.append(StatePreparation(psi), data)
-        
-        # Hadamard on ancilla
-        qc.h(anc)
-        
-        # Controlled transition unitary
-        U_chi_psi = self._build_transition_unitary(psi, chi)
-        qc.append(U_chi_psi.control(1), [anc] + data)
-        
-        # Final Hadamard
-        qc.h(anc)
-        
-        # Get statevector and measure Z on ancilla
-        sv = Statevector.from_instruction(qc)
-        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
-        
-        return float(z_exp)
-```
-
-## File: src/IQC/interference/math_backend.py
-
-```py
-import numpy as np
-from .base import InterferenceBackend
-
-class MathInterferenceBackend(InterferenceBackend):
-    """
-    Numpy-based interference backend.
-    This reproduces existing behavior exactly.
-    """
-
-    def score(self, chi, psi) -> float:
-        return float(np.real(np.vdot(chi, psi)))
-
-```
-
 ## File: src/IQC/interference/__init__.py
 
 ```py
 
 ```
 
-## File: src/IQC/inference/regime3b_classifier.py
+## File: src/IQC/inference/weighted_vote_classifier.py
 
 ```py
-class Regime3BClassifier:
+class WeightedVoteClassifier:
     def __init__(self, memory_bank, weights=None):
         self.memory_bank = memory_bank
         self.M = len(memory_bank.class_states)

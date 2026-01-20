@@ -1,10 +1,10 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import UnitaryGate
+#from qiskit.circuit.library import UnitaryGate
 from src.utils.common import build_transition_unitary
 
-def build_isdo_circuit_b_prime(psi, chi):
+def build(psi, chi):
     """
     ISDO Circuit B': Transition-based interference (CORRECT PHYSICAL IMPLEMENTATION)
     
@@ -46,20 +46,20 @@ def build_isdo_circuit_b_prime(psi, chi):
     return qc
 
 
-def run_isdo_circuit_b_prime(psi, chi):
+def run(psi, chi):
     """
     Exact (statevector) evaluation of ⟨Z⟩ which gives Re⟨χ|ψ⟩
     
     This is the CORRECT physical implementation of ISDO.
     """
-    qc = build_isdo_circuit_b_prime(psi, chi)
+    qc = build(psi, chi)
     qc_no_meas = qc.remove_final_measurements(inplace=False)
     sv = Statevector.from_instruction(qc_no_meas)
     z_exp = sv.expectation_value(Pauli('Z'), [0]).real
     return z_exp
 
 
-def verify_isdo_b_prime(psi, chi):
+def verify(psi, chi):
     """
     Verify that the circuit correctly computes Re⟨χ|ψ⟩
     """
@@ -73,7 +73,7 @@ def verify_isdo_b_prime(psi, chi):
     expected = np.real(np.vdot(chi, psi))
     
     # Circuit result
-    measured = run_isdo_circuit_b_prime(psi, chi)
+    measured = run(psi, chi)
     
     # Check
     is_correct = np.allclose(measured, expected, atol=1e-10)

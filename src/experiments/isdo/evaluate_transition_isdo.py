@@ -10,7 +10,7 @@ Only Circuit B' gives the true ISDO observable: Re⟨χ|ψ⟩
 """
 
 import numpy as np
-from src.quantum.isdo.circuits.circuit_b_prime_transition import run_isdo_circuit_b_prime, verify_isdo_b_prime
+from src.ISDO.circuits.transition_isdo import run, verify
 
 
 def test_all_circuits():
@@ -49,13 +49,13 @@ def test_all_circuits():
     print("Observable: Re⟨χ|ψ⟩ (linear, signed, phase-sensitive)")
     print("Status: Use this for all hardware and claims")
     try:
-        result_b_prime = run_isdo_circuit_b_prime(psi, chi)
+        result_b_prime = run(psi, chi)
         print(f"Result:   {result_b_prime:.6f}")
         print(f"Expected: {expected_isdo:.6f}")
         print(f"Match:    {np.allclose(result_b_prime, expected_isdo, atol=1e-6)}")
         
         print("\nRunning full verification...")
-        verify_isdo_b_prime(psi, chi)
+        verify(psi, chi)
     except Exception as e:
         print(f"Error: {e}")
     print()
@@ -100,7 +100,7 @@ def test_different_states():
         rfc = 1 - 2 * np.abs(np.vdot(chi, psi))**2
         
         try:
-            measured_b_prime = run_isdo_circuit_b_prime(psi, chi)
+            measured_b_prime = run(psi, chi)
             
             print(f"\nTest {i}:")
             print(f"  True ISDO (Re⟨χ|ψ⟩):    {true_isdo:+.4f}")

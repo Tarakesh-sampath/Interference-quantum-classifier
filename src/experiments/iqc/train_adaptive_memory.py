@@ -8,11 +8,11 @@ from src.utils.seed import set_seed
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
-from src.IQC.interference.math_backend import MathInterferenceBackend
-from src.IQC.interference.circuit_backend_hadamard import HadamardInterferenceBackend
+from src.IQC.interference.ExactBackend import ExactBackend
+from src.IQC.interference.OracleBackend import OracleBackend
 
-from src.IQC.training.regime3c_trainer_v2 import Regime3CTrainer
-from src.IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
+from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
 import pickle
 
 
@@ -70,8 +70,8 @@ for _ in range(3):
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
 
-backend = MathInterferenceBackend()
-backend_hadamard = HadamardInterferenceBackend()
+backend = ExactBackend()
+backend_hadamard = OracleBackend()
 
 memory_bank = MemoryBank(
     class_states=class_states,
@@ -84,7 +84,7 @@ print("Initial number of memories:", len(memory_bank.class_states))
 # -------------------------------------------------
 # Train Regime 3-C (percentile-based τ)
 # -------------------------------------------------
-trainer = Regime3CTrainer(
+trainer = AdaptiveMemoryTrainer(
     memory_bank=memory_bank,
     eta=0.1,
     percentile=5,       # τ = 5th percentile of margins
@@ -103,7 +103,7 @@ print("Number of updates:", trainer.num_updates)
 # -------------------------------------------------
 # Evaluate using Regime 3-B inference
 # -------------------------------------------------
-classifier = Regime3BClassifier(memory_bank)
+classifier = WeightedVoteClassifier(memory_bank)
 
 correct = 0
 for psi, y in dataset:

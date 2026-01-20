@@ -2,7 +2,7 @@ import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from src.quantum.isdo.isdo_classifier import ISDOClassifier
+from src.ISDO.baselines.static_isdo_classifier  import StaticISDOClassifier
 from src.utils.paths import load_paths
 
 BASE_ROOT, PATHS = load_paths()
@@ -19,7 +19,7 @@ test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
 X_test = X[test_idx]
 y_test = y[test_idx]
 
-clf = ISDOClassifier(PROTO_DIR, K)
+clf = StaticISDOClassifier(PROTO_DIR, K)
 y_pred = clf.predict(X_test)
 
 acc = accuracy_score(y_test, y_pred)

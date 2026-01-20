@@ -1,9 +1,9 @@
 import numpy as np
-from ..learning.regime2_update import regime2_update
-from ..observable.isdo_score import isdo_score
+from ..learning.perceptron_update import perceptron_update
+from src.ISDO.observables.isdo import isdo_observable
 
 
-class Regime2Trainer:
+class OnlinePerceptronTrainer:
     """
     Online Interference Quantum Classifier (Regime 2)
 
@@ -28,11 +28,11 @@ class Regime2Trainer:
         Process a single training example.
         """
         chi_vec = self.class_state.vector
-        s = isdo_score(chi_vec, psi)
+        s = isdo_observable(chi_vec, psi)
         margin = y * s
         y_hat = 1 if s >= 0 else -1
 
-        chi_new, updated = regime2_update(
+        chi_new, updated = perceptron_update(
             chi_vec, psi, y, self.eta
         )
 
