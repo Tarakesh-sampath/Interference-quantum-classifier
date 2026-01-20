@@ -64,10 +64,14 @@ measurement-free-quantum-classifier/
             iqc/
                 run_regime3c_v1.py
                 run_regime3b.py
+                verify_isdo_bprime_backend.py
+                verify_hadamard_backend.py
                 run_regime3a.py
                 run_regime2.py
+                verify_transition_backend.py
                 run_regime3c_consolidation.py
                 run_regime3c_v2.py
+                verify_isdo_bprime_v2_backend.py
                 __init__.py
         IQC/
             __init__.py
@@ -90,6 +94,15 @@ measurement-free-quantum-classifier/
                 __init__.py
             memory/
                 memory_bank.py
+                __init__.py
+            interference/
+                circuit_backend_hadamard.py
+                base.py
+                circuit_backend_isdo_bprime.py
+                circuit_backend_isdo_bprime_v2.py
+                circuit_backend.py
+                circuit_backend_transition.py
+                math_backend.py
                 __init__.py
             inference/
                 regime3b_classifier.py
@@ -1055,7 +1068,7 @@ import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from isdo_classifier import ISDOClassifier
+from src.quantum.isdo.isdo_classifier import ISDOClassifier
 from src.utils.paths import load_paths
 
 BASE_ROOT, PATHS = load_paths()
@@ -1587,7 +1600,7 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
 from qiskit.circuit.library import StatePreparation
 
-from .... utils.common import load_statevector
+from src.utils.common import load_statevector
 
 
 def build_isdo_circuit_a(psi, chi):
@@ -1749,8 +1762,8 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector
 from qiskit_aer import AerSimulator
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 
 # ----------------------------
@@ -2017,8 +2030,8 @@ import json
 import numpy as np
 from sklearn.preprocessing import normalize
 
-from ... utils.paths import load_paths
-from ... utils.seed import set_seed
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 
 # ----------------------------
@@ -2217,7 +2230,7 @@ import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
 from qiskit.circuit.library import StatePreparation, UnitaryGate
-from ... utils.common import load_statevector
+from src.utils.common import load_statevector
 
 
 def reflection_operator(chi):
@@ -2358,6 +2371,7 @@ from src.utils.seed import set_seed
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.interference.math_backend import MathInterferenceBackend
 
 from src.IQC.training.regime3c_trainer_v1 import Regime3CTrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
@@ -2417,8 +2431,14 @@ for _ in range(3):
     v = np.random.randn(d)
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
+    
+backend = MathInterferenceBackend()
 
-memory_bank = MemoryBank(class_states)
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
+
 
 print("Initial number of memories:", len(memory_bank.class_states))
 
@@ -2488,6 +2508,7 @@ from src.IQC.memory.memory_bank import MemoryBank
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.training.regime3a_trainer import Regime3ATrainer
+from src.IQC.interference.math_backend import MathInterferenceBackend
 
 
 from src.utils.paths import load_paths
@@ -2540,9 +2561,15 @@ for _ in range(3):
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
 
-memory_bank = MemoryBank(class_states)
+backend = MathInterferenceBackend()
+
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
 trainer = Regime3ATrainer(memory_bank, eta=0.1)
 acc = trainer.train(dataset)
+
 # now we train 3b 
 classifier = Regime3BClassifier(trainer.memory_bank)
 
@@ -2559,8 +2586,122 @@ print("Memory usage:", Counter(trainer.history["winner_idx"]))
 """
 🌱 Global seed set to 42
 Loaded train embeddings: (3500, 32)
-Regime 3-B accuracy: 0.8817142857142857
-Memory usage: Counter({0: 1266, 2: 1238, 1: 996})
+Regime 3-B accuracy: 0.8342857142857143
+Memory usage: Counter({2: 1473, 0: 1243, 1: 784})
+"""
+```
+
+## File: src/experiments/iqc/verify_isdo_bprime_backend.py
+
+```py
+import numpy as np
+from scipy.stats import spearmanr
+
+from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
+from src.IQC.interference.circuit_backend_isdo_bprime import ISDOBPrimeInterferenceBackend
+
+
+def random_state(n):
+    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
+    v /= np.linalg.norm(v)
+    return v
+
+
+def sign(x):
+    return 1 if x >= 0 else -1
+
+
+np.random.seed(0)
+
+math_backend = MathInterferenceBackend()
+ref_backend = TransitionInterferenceBackend()
+isdo_backend = ISDOBPrimeInterferenceBackend()
+
+n = 4
+num_tests = 100
+
+sign_agree = 0
+ref_vals = []
+isdo_vals = []
+
+for _ in range(num_tests):
+    chi = random_state(n)
+    psi = random_state(n)
+
+    s_ref = ref_backend.score(chi, psi)
+    s_isdo = isdo_backend.score(chi, psi)
+
+    ref_vals.append(s_ref)
+    isdo_vals.append(s_isdo)
+
+    if sign(s_ref) == sign(s_isdo):
+        sign_agree += 1
+
+rho, _ = spearmanr(ref_vals, isdo_vals)
+
+print("ISDO-B′ vs Transition backend")
+print("Sign agreement:", sign_agree, "/", num_tests)
+print("Spearman rank correlation:", rho)
+print("Mean |difference|:", np.mean(np.abs(np.array(ref_vals) - np.array(isdo_vals))))
+
+"""
+ISDO-B′ vs Transition backend
+Sign agreement: 51 / 100
+Spearman rank correlation: -0.029006900690069004
+Mean |difference|: 0.21415260812801665
+"""
+```
+
+## File: src/experiments/iqc/verify_hadamard_backend.py
+
+```py
+import numpy as np
+
+from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.interference.circuit_backend_hadamard import HadamardInterferenceBackend
+
+
+def random_state(n):
+    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
+    v /= np.linalg.norm(v)
+    return v
+
+
+def sign(x):
+    return 1 if x >= 0 else -1
+
+
+np.random.seed(0)
+
+math_backend = MathInterferenceBackend()
+had_backend = HadamardInterferenceBackend()
+
+n = 3  # small, exact verification
+num_tests = 50
+
+sign_agree = 0
+vals = []
+
+for _ in range(num_tests):
+    chi = random_state(n)
+    psi = random_state(n)
+
+    s_math = math_backend.score(chi, psi)
+    s_had = had_backend.score(chi, psi)
+
+    vals.append((s_math, s_had))
+
+    if sign(s_math) == sign(s_had):
+        sign_agree += 1
+
+print("Sign agreement:", sign_agree, "/", num_tests)
+print("Mean abs error:", np.mean([abs(a - b) for a, b in vals]))
+
+## output
+"""
+Sign agreement: 50 / 50
+Mean abs error: 6.399047958183246e-16
 """
 ```
 
@@ -2712,6 +2853,58 @@ Training stats: {'mean_margin': 0.14930659062683652, 'min_margin': -0.7069261085
 """
 ```
 
+## File: src/experiments/iqc/verify_transition_backend.py
+
+```py
+import numpy as np
+
+from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
+
+
+def random_state(n):
+    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
+    v /= np.linalg.norm(v)
+    return v
+
+
+def sign(x):
+    return 1 if x >= 0 else -1
+
+
+np.random.seed(0)
+
+math_backend = MathInterferenceBackend()
+transition_backend = TransitionInterferenceBackend()
+
+n = 3  # small, exact verification
+num_tests = 50
+
+sign_agree = 0
+vals = []
+
+for _ in range(num_tests):
+    chi = random_state(n)
+    psi = random_state(n)
+
+    s_math = math_backend.score(chi, psi)
+    s_transition = transition_backend.score(chi, psi)
+
+    vals.append((s_math, s_transition))
+
+    if sign(s_math) == sign(s_transition):
+        sign_agree += 1
+
+print("Sign agreement:", sign_agree, "/", num_tests)
+print("Mean abs error:", np.mean([abs(a - b) for a, b in vals]))
+
+## output
+"""
+Sign agreement: 50 / 50
+Mean abs error: 1.3332529524845427e-14
+"""
+```
+
 ## File: src/experiments/iqc/run_regime3c_consolidation.py
 
 ```py
@@ -2724,6 +2917,7 @@ from src.utils.seed import set_seed
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.training.regime3a_trainer import Regime3ATrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
+from src.IQC.interference.math_backend import MathInterferenceBackend
 
 
 # -------------------------------------------------
@@ -2840,6 +3034,8 @@ from src.utils.seed import set_seed
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
+from src.IQC.interference.math_backend import MathInterferenceBackend
+from src.IQC.interference.circuit_backend_hadamard import HadamardInterferenceBackend
 
 from src.IQC.training.regime3c_trainer_v2 import Regime3CTrainer
 from src.IQC.inference.regime3b_classifier import Regime3BClassifier
@@ -2900,7 +3096,13 @@ for _ in range(3):
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
 
-memory_bank = MemoryBank(class_states)
+backend = MathInterferenceBackend()
+backend_hadamard = HadamardInterferenceBackend()
+
+memory_bank = MemoryBank(
+    class_states=class_states,
+    backend=backend
+)
 
 print("Initial number of memories:", len(memory_bank.class_states))
 
@@ -2960,6 +3162,68 @@ Number of updates: 429
 Regime 3-C accuracy (3-B inference): 0.788
 Final memory count: 22
 Saved Regime 3-C memory bank.
+"""
+```
+
+## File: src/experiments/iqc/verify_isdo_bprime_v2_backend.py
+
+```py
+import numpy as np
+from scipy.stats import spearmanr
+
+from src.IQC.interference.circuit_backend_transition import TransitionInterferenceBackend
+from src.IQC.interference.circuit_backend_isdo_bprime_v2 import (
+    ISDOBPrimeV2InterferenceBackend
+)
+
+
+def random_state(n):
+    v = np.random.randn(2**n) + 1j * np.random.randn(2**n)
+    v /= np.linalg.norm(v)
+    return v
+
+
+def sign(x):
+    return 1 if x >= 0 else -1
+
+
+np.random.seed(0)
+
+ref_backend = TransitionInterferenceBackend()
+isdo_v2_backend = ISDOBPrimeV2InterferenceBackend()
+
+n = 4
+num_tests = 100
+
+sign_agree = 0
+ref_vals = []
+isdo_vals = []
+
+for _ in range(num_tests):
+    chi = random_state(n)
+    psi = random_state(n)
+
+    s_ref = ref_backend.score(chi, psi)
+    s_isdo = isdo_v2_backend.score(chi, psi)
+
+    ref_vals.append(s_ref)
+    isdo_vals.append(s_isdo)
+
+    if sign(s_ref) == sign(s_isdo):
+        sign_agree += 1
+
+rho, _ = spearmanr(ref_vals, isdo_vals)
+
+print("ISDO-B′ v2 vs Transition backend")
+print("Sign agreement:", sign_agree, "/", num_tests)
+print("Spearman rank correlation:", rho)
+print("Mean |difference|:", np.mean(np.abs(np.array(ref_vals) - np.array(isdo_vals))))
+
+"""
+ISDO-B′ v2 vs Transition backend
+Sign agreement: 50 / 100
+Spearman rank correlation: 0.078019801980198
+Mean |difference|: 0.8633964573421116
 """
 ```
 
@@ -3169,11 +3433,8 @@ class Regime3CTrainer:
         }
 
     def aggregated_score(self, psi):
-        scores = np.array([
-            float(np.real(np.vdot(cs.vector, psi)))
-            for cs in self.memory_bank.class_states
-        ])
-        return scores.mean()  # uniform weights
+        scores = self.memory_bank.scores(psi)
+        return sum(scores) / len(scores)
 
     def step(self, psi, y):
         S = self.aggregated_score(psi)
@@ -3418,26 +3679,20 @@ def isdo_score(chi: np.ndarray, psi: np.ndarray) -> float:
 ## File: src/IQC/memory/memory_bank.py
 
 ```py
-import numpy as np
-
 class MemoryBank:
-    """
-    Holds multiple learned class states |chi^(m)>.
-    Selection is purely interference-based.
-    """
-
-    def __init__(self, class_states):
-        self.class_states = class_states  # list[ClassState]
+    def __init__(self, class_states, backend):
+        self.class_states = class_states
+        self.backend = backend
 
     def scores(self, psi):
         return [
-            float(np.real(np.vdot(cs.vector, psi)))
+            self.backend.score(cs.vector, psi)
             for cs in self.class_states
         ]
 
     def winner(self, psi):
         scores = self.scores(psi)
-        idx = int(np.argmax(np.abs(scores)))
+        idx = int(max(range(len(scores)), key=lambda i: abs(scores[i])))
         return idx, scores[idx]
 
     def add_memory(self, chi_vector):
@@ -3452,38 +3707,438 @@ class MemoryBank:
 
 ```
 
-## File: src/IQC/inference/regime3b_classifier.py
+## File: src/IQC/interference/circuit_backend_hadamard.py
 
 ```py
 import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import StatePreparation  # ✅ Correct import
+from .base import InterferenceBackend
 
+# If you also want the conceptual/oracle version:
+class HadamardInterferenceBackend(InterferenceBackend):
+    """
+    CONCEPTUAL Hadamard-test using oracle state preparation.
+    
+    WARNING: This uses non-unitary StatePreparation and is NOT 
+    physically realizable. Use only for conceptual understanding.
+    For actual implementation, use TransitionInterferenceBackend.
+    
+    Computes Re⟨chi | psi⟩ in oracle model.
+    """
+    
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+        
+        # Normalize
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+        
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+        
+        qc = QuantumCircuit(1 + n)
+        anc = 0
+        data = list(range(1, 1 + n))
+        
+        # Hadamard on ancilla
+        qc.h(anc)
+        
+        # Controlled state preparation (ORACLE ASSUMPTION)
+        # When anc=0: prepare |psi⟩
+        state_prep_psi = StatePreparation(psi)
+        qc.append(state_prep_psi.control(1), [anc] + data)
+        
+        # Flip ancilla
+        qc.x(anc)
+        
+        # When anc=1 (after flip, so anc=0): prepare |chi⟩
+        state_prep_chi = StatePreparation(chi)
+        qc.append(state_prep_chi.control(1), [anc] + data)
+        
+        # Flip back
+        qc.x(anc)
+        
+        # Final Hadamard
+        qc.h(anc)
+        
+        # Get statevector and measure Z on ancilla
+        sv = Statevector.from_instruction(qc)
+        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
+        
+        return float(z_exp)
+```
+
+## File: src/IQC/interference/base.py
+
+```py
+from abc import ABC, abstractmethod
+
+class InterferenceBackend(ABC):
+    """
+    Abstract interface for computing interference scores.
+    """
+
+    @abstractmethod
+    def score(self, chi, psi) -> float:
+        """
+        Return Re⟨chi | psi⟩ as a real scalar.
+        """
+        pass
+
+```
+
+## File: src/IQC/interference/circuit_backend_isdo_bprime.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import UnitaryGate
+
+from .base import InterferenceBackend
+
+
+class ISDOBPrimeInterferenceBackend(InterferenceBackend):
+    """
+    ISDO-B′ interference backend.
+
+    Implements the observable:
+        S_ISDO(psi; chi) = <psi | U_chi^† Z^{⊗n} U_chi | psi>
+
+    Properties:
+    - No controlled unitaries
+    - Fixed measurement (Z^{⊗n})
+    - chi appears only as a basis change (U_chi)
+    - Hardware-friendly compared to Hadamard test
+    """
+
+    def __init__(self):
+        # Optional cache for U_chi to avoid recomputation
+        self._cache = {}
+
+    @staticmethod
+    def _statevector_to_unitary(vec):
+        """
+        Build a unitary U such that U |0...0> = |vec>.
+        Completed via Gram–Schmidt to a full unitary.
+        """
+        vec = np.asarray(vec, dtype=np.complex128)
+        vec = vec / np.linalg.norm(vec)
+        dim = len(vec)
+
+        U = np.zeros((dim, dim), dtype=np.complex128)
+        U[:, 0] = vec
+
+        for i in range(1, dim):
+            v = np.zeros(dim, dtype=np.complex128)
+            v[i] = 1.0
+
+            for j in range(i):
+                v -= np.vdot(U[:, j], v) * U[:, j]
+
+            nrm = np.linalg.norm(v)
+            if nrm < 1e-12:
+                v = np.random.randn(dim) + 1j * np.random.randn(dim)
+                for j in range(i):
+                    v -= np.vdot(U[:, j], v) * U[:, j]
+                v /= np.linalg.norm(v)
+            else:
+                v /= nrm
+
+            U[:, i] = v
+
+        return U
+
+    def _get_U_chi(self, chi):
+        """
+        Cached construction of U_chi.
+        """
+        key = chi.tobytes()
+        if key not in self._cache:
+            U = self._statevector_to_unitary(chi)
+            self._cache[key] = UnitaryGate(U)
+        return self._cache[key]
+
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+
+        qc = QuantumCircuit(n)
+
+        # Prepare |psi>
+        qc.initialize(psi, list(range(n)))
+
+        # Apply U_chi
+        U_chi = self._get_U_chi(chi)
+        qc.append(U_chi, list(range(n)))
+
+        # Measure Z^{⊗n} expectation exactly (statevector)
+        sv = Statevector.from_instruction(qc)
+        Z_all = Pauli("Z" + "I" * (n - 1))
+
+        exp_val = sv.expectation_value(Z_all).real
+        return float(exp_val)
+
+```
+
+## File: src/IQC/interference/circuit_backend_isdo_bprime_v2.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector
+from qiskit.circuit.library import UnitaryGate
+
+from .base import InterferenceBackend
+
+
+class ISDOBPrimeV2InterferenceBackend(InterferenceBackend):
+    """
+    ISDO-B′ v2: Contrastive projector observable.
+
+    Implements:
+        S = <psi | U_chi^† (|0><0| - Pi_perp) U_chi | psi>
+          = 2 * |<chi|psi>|^2 - 1     (with alpha = 1)
+
+    Measurement procedure:
+      1) Prepare |psi>
+      2) Apply U_chi
+      3) Measure probability p0 of |0...0>
+      4) Return S = 2*p0 - 1
+
+    No ancilla. No controlled unitaries.
+    """
+
+    def __init__(self):
+        self._cache = {}
+
+    @staticmethod
+    def _statevector_to_unitary(vec):
+        """
+        Build a unitary U such that U |0...0> = |vec>.
+        Completed via Gram–Schmidt to a full unitary.
+        """
+        vec = np.asarray(vec, dtype=np.complex128)
+        vec = vec / np.linalg.norm(vec)
+        dim = len(vec)
+
+        U = np.zeros((dim, dim), dtype=np.complex128)
+        U[:, 0] = vec
+
+        for i in range(1, dim):
+            v = np.zeros(dim, dtype=np.complex128)
+            v[i] = 1.0
+
+            for j in range(i):
+                v -= np.vdot(U[:, j], v) * U[:, j]
+
+            nrm = np.linalg.norm(v)
+            if nrm < 1e-12:
+                v = np.random.randn(dim) + 1j * np.random.randn(dim)
+                for j in range(i):
+                    v -= np.vdot(U[:, j], v) * U[:, j]
+                v /= np.linalg.norm(v)
+            else:
+                v /= nrm
+
+            U[:, i] = v
+
+        return U
+
+    def _get_U_chi(self, chi):
+        key = chi.tobytes()
+        if key not in self._cache:
+            U = self._statevector_to_unitary(chi)
+            self._cache[key] = UnitaryGate(U)
+        return self._cache[key]
+
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+
+        qc = QuantumCircuit(n)
+
+        # Prepare |psi>
+        qc.initialize(psi, list(range(n)))
+
+        # Rotate basis with U_chi
+        U_chi = self._get_U_chi(chi)
+        qc.append(U_chi, list(range(n)))
+
+        # Exact statevector
+        sv = Statevector.from_instruction(qc)
+
+        # Probability of |0...0>
+        p0 = abs(sv.data[0]) ** 2
+
+        # Contrastive projector score (alpha = 1)
+        return float(2.0 * p0 - 1.0)
+
+```
+
+## File: src/IQC/interference/circuit_backend.py
+
+```py
+
+```
+
+## File: src/IQC/interference/circuit_backend_transition.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import UnitaryGate, StatePreparation  # ✅ Correct import
+from .base import InterferenceBackend
+
+
+class TransitionInterferenceBackend(InterferenceBackend):
+    """
+    CORRECT physical Hadamard-test using transition unitary.
+    
+    This is the physically realizable ISDO implementation.
+    Computes Re⟨chi | psi⟩ using U_chi_psi = U_chi @ U_psi^dagger
+    
+    This should be used for all hardware experiments and claims.
+    """
+    
+    @staticmethod
+    def _statevector_to_unitary(vec):
+        """Build unitary that prepares vec from |0...0⟩"""
+        vec = np.asarray(vec, dtype=np.complex128)
+        vec = vec / np.linalg.norm(vec)
+        dim = len(vec)
+        
+        U = np.zeros((dim, dim), dtype=complex)
+        U[:, 0] = vec
+        
+        # Gram-Schmidt to complete the unitary
+        for i in range(1, dim):
+            v = np.zeros(dim, dtype=complex)
+            v[i] = 1.0
+            
+            for j in range(i):
+                v -= np.vdot(U[:, j], v) * U[:, j]
+            
+            v_norm = np.linalg.norm(v)
+            if v_norm > 1e-10:
+                U[:, i] = v / v_norm
+            else:
+                v = np.random.randn(dim) + 1j * np.random.randn(dim)
+                for j in range(i):
+                    v -= np.vdot(U[:, j], v) * U[:, j]
+                U[:, i] = v / np.linalg.norm(v)
+        
+        return U
+    
+    @staticmethod
+    def _build_transition_unitary(psi, chi):
+        """Build U_chi_psi = U_chi @ U_psi^dagger"""
+        U_psi = TransitionInterferenceBackend._statevector_to_unitary(psi)
+        U_chi = TransitionInterferenceBackend._statevector_to_unitary(chi)
+        
+        # Transition unitary
+        U_chi_psi = U_chi @ U_psi.conj().T
+        
+        return UnitaryGate(U_chi_psi)
+    
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+        
+        # Normalize
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+        
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+        
+        qc = QuantumCircuit(1 + n)
+        anc = 0
+        data = list(range(1, 1 + n))
+        
+        # Prepare |psi⟩ on data qubits
+        qc.append(StatePreparation(psi), data)
+        
+        # Hadamard on ancilla
+        qc.h(anc)
+        
+        # Controlled transition unitary
+        U_chi_psi = self._build_transition_unitary(psi, chi)
+        qc.append(U_chi_psi.control(1), [anc] + data)
+        
+        # Final Hadamard
+        qc.h(anc)
+        
+        # Get statevector and measure Z on ancilla
+        sv = Statevector.from_instruction(qc)
+        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
+        
+        return float(z_exp)
+```
+
+## File: src/IQC/interference/math_backend.py
+
+```py
+import numpy as np
+from .base import InterferenceBackend
+
+class MathInterferenceBackend(InterferenceBackend):
+    """
+    Numpy-based interference backend.
+    This reproduces existing behavior exactly.
+    """
+
+    def score(self, chi, psi) -> float:
+        return float(np.real(np.vdot(chi, psi)))
+
+```
+
+## File: src/IQC/interference/__init__.py
+
+```py
+
+```
+
+## File: src/IQC/inference/regime3b_classifier.py
+
+```py
 class Regime3BClassifier:
-    """
-    Regime 3-B: Interference Voting Classifier
-    Uses multiple learned |chi> states with soft aggregation.
-    """
-
     def __init__(self, memory_bank, weights=None):
         self.memory_bank = memory_bank
         self.M = len(memory_bank.class_states)
 
         if weights is None:
-            self.weights = np.ones(self.M) / self.M
+            self.weights = [1.0 / self.M] * self.M
         else:
-            self.weights = np.asarray(weights)
-            assert len(self.weights) == self.M
-            self.weights = self.weights / np.sum(self.weights)
+            s = sum(weights)
+            self.weights = [w / s for w in weights]
 
     def score(self, psi):
-        scores = np.array([
-            float(np.real(np.vdot(cs.vector, psi)))
-            for cs in self.memory_bank.class_states
-        ])
-        return float(np.dot(self.weights, scores))
+        scores = self.memory_bank.scores(psi)
+        return sum(w * s for w, s in zip(self.weights, scores))
 
     def predict(self, psi):
-        s = self.score(psi)
-        return 1 if s >= 0 else -1
+        return 1 if self.score(psi) >= 0 else -1
 
 ```
 
