@@ -19,3 +19,7 @@ class MemoryBank:
         scores = self.scores(psi)
         idx = int(np.argmax(np.abs(scores)))
         return idx, scores[idx]
+
+    def add_memory(self, chi_vector):
+        from ..states.class_state import ClassState
+        self.class_states.append(ClassState(chi_vector))
