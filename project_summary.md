@@ -4,13 +4,6 @@
 
 ```
 measurement-free-quantum-classifier/
-    scripts_Classical/
-        make_embedding_split.py
-        train_embedding_models.py
-        extract_embeddings.py
-        visualize_embeddings.py
-        train_cnn.py
-        visualize_pcam.py
     configs/
         paths.yaml
     src/
@@ -54,6 +47,14 @@ measurement-free-quantum-classifier/
                 prototype/
                     calculate_prototype.py
                     __init__.py
+            classical/
+                make_embedding_split.py
+                train_embedding_models.py
+                extract_embeddings.py
+                visualize_embeddings.py
+                train_cnn.py
+                __init__.py
+                visualize_pcam.py
         IQC/
             __init__.py
             learning/
@@ -362,441 +363,6 @@ measurement-free-quantum-classifier/
         figures/
 ```
 
-## File: scripts_Classical/make_embedding_split.py
-
-```py
-import os
-import numpy as np
-from sklearn.model_selection import train_test_split
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-set_seed(42)
-
-BASE_ROOT, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-
-indices = np.arange(len(y))
-
-train_idx, test_idx = train_test_split(
-    indices,
-    test_size=0.3,
-    random_state=42,
-    stratify=y
-)
-
-np.save(os.path.join(EMBED_DIR, "split_train_idx.npy"), train_idx)
-np.save(os.path.join(EMBED_DIR, "split_test_idx.npy"), test_idx)
-
-print("Saved split:")
-print("Train:", len(train_idx))
-print("Test :", len(test_idx))
-
-```
-
-## File: scripts_Classical/train_embedding_models.py
-
-```py
-import os
-import json
-import numpy as np
-
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, normalize
-from sklearn.metrics import accuracy_score, roc_auc_score
-
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
-from sklearn.neighbors import KNeighborsClassifier
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-BASE_ROOT, PATHS = load_paths()
-
-EMBED_DIR = PATHS["embeddings"]
-LOG_DIR = PATHS["logs"]
-os.makedirs(LOG_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-print("Loaded embeddings:", X.shape)
-
-# ----------------------------
-# Preprocessing
-# ----------------------------
-# 1) Standardize (important for linear models)
-scaler = StandardScaler()
-X_std = scaler.fit_transform(X)
-
-# 2) L2-normalize (important for similarity & quantum)
-X_l2 = normalize(X_std, norm="l2")
-
-# ----------------------------
-# Train / test split
-# ----------------------------
-
-# Standardized features (LR, SVM)
-Xtr_s = X_std[train_idx]
-Xte_s = X_std[test_idx]
-ytr   = y[train_idx]
-yte   = y[test_idx]
-
-# L2-normalized features (kNN)
-Xtr_l2 = X_l2[train_idx]
-Xte_l2 = X_l2[test_idx]
-
-results = {}
-
-# ==================================================
-# 1️⃣ Logistic Regression (Linear separability)
-# ==================================================
-print("\nTraining Logistic Regression...")
-logreg = LogisticRegression(
-    max_iter=1000,
-    n_jobs=-1
-)
-logreg.fit(Xtr_s, ytr)
-
-pred_lr = logreg.predict(Xte_s)
-proba_lr = logreg.predict_proba(Xte_s)[:, 1]
-
-results["LogisticRegression"] = {
-    "accuracy": accuracy_score(yte, pred_lr),
-    "auc": roc_auc_score(yte, proba_lr)
-}
-
-# ==================================================
-# 2️⃣ Linear SVM (Max-margin)
-# ==================================================
-print("Training Linear SVM...")
-svm = LinearSVC()
-svm.fit(Xtr_s, ytr)
-
-pred_svm = svm.predict(Xte_s)
-
-results["LinearSVM"] = {
-    "accuracy": accuracy_score(yte, pred_svm),
-    "auc": None   # LinearSVC has no probability estimates
-}
-
-# ==================================================
-# 3️⃣ k-NN (Distance-based similarity)
-# ==================================================
-print("Training k-NN...")
-knn = KNeighborsClassifier(
-    n_neighbors=5,
-    metric="euclidean"
-)
-knn.fit(Xtr_l2, ytr)
-print("Knn neighbors:", knn.n_neighbors)
-pred_knn = knn.predict(Xte_l2)
-proba_knn = knn.predict_proba(Xte_l2)[:, 1]
-
-results["kNN"] = {
-    "accuracy": accuracy_score(yte, pred_knn),
-    "auc": roc_auc_score(yte, proba_knn)
-}
-
-# ----------------------------
-# Save results
-# ----------------------------
-with open(os.path.join(LOG_DIR, "embedding_baseline_results.json"), "w") as f:
-    json.dump(results, f, indent=2)
-
-# ----------------------------
-# Print summary
-# ----------------------------
-print("\n=== Embedding Baseline Results ===")
-for model, metrics in results.items():
-    print(
-        f"{model:>18} | "
-        f"Acc: {metrics['accuracy']:.4f} | "
-        f"AUC: {metrics['auc']}"
-    )
-
-## output 
-"""
-🌱 Global seed set to 42
-Loaded embeddings: (5000, 32)
-
-Training Logistic Regression...
-Training Linear SVM...
-Training k-NN...
-Knn neighbors: 5
-
-=== Embedding Baseline Results ===
-LogisticRegression | Acc: 0.9087 | AUC: 0.9706703413940256
-         LinearSVM | Acc: 0.9120 | AUC: None
-               kNN | Acc: 0.9260 | AUC: 0.9690398293029872
-"""
-```
-
-## File: scripts_Classical/extract_embeddings.py
-
-```py
-import os
-import torch
-import numpy as np
-from torch.utils.data import DataLoader, Subset
-from tqdm import tqdm
-
-from src.classical.cnn import PCamCNN
-from src.data.pcam_loader import get_pcam_dataset
-from src.data.transforms import get_eval_transforms
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-set_seed(42)
-
-BASE_ROOT, PATHS = load_paths()
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-CHECKPOINT = os.path.join(PATHS["checkpoints"], "pcam_cnn_best.pt")
-os.makedirs(PATHS["embeddings"], exist_ok=True)
-
-model = PCamCNN(embedding_dim=32).to(DEVICE)
-model.load_state_dict(torch.load(CHECKPOINT, map_location=DEVICE))
-model.eval()
-
-dataset = get_pcam_dataset(PATHS["dataset"], "val", get_eval_transforms())
-subset = Subset(dataset, range(5000))
-loader = DataLoader(subset, batch_size=128, num_workers=6, pin_memory=True)
-
-embeds, labels , lable_polar = [], [] , []
-
-with torch.no_grad():
-    for x, y in tqdm(loader):
-        z = model(x.to(DEVICE), return_embedding=True)
-        embeds.append(z.cpu().numpy())
-        labels.append(y.numpy())
-        lable_polar.append((y.numpy())*2 - 1)
-
-np.save(os.path.join(PATHS["embeddings"], "val_embeddings.npy"), np.vstack(embeds).astype(np.float64))
-np.save(os.path.join(PATHS["embeddings"], "val_labels.npy"), np.concatenate(labels).astype(np.float64))
-np.save(os.path.join(PATHS["embeddings"], "val_labels_polar.npy"), np.concatenate(lable_polar).astype(np.float64))
-```
-
-## File: scripts_Classical/visualize_embeddings.py
-
-```py
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-set_seed(42)
-
-_, PATHS = load_paths()
-
-X = np.load(os.path.join(PATHS["embeddings"], "val_embeddings.npy"))
-y = np.load(os.path.join(PATHS["embeddings"], "val_labels.npy"))
-
-tsne = TSNE(n_components=2, perplexity=30, max_iter=1000, random_state=42)
-X2 = tsne.fit_transform(X)
-
-plt.figure(figsize=(7, 6))
-plt.scatter(X2[y == 0, 0], X2[y == 0, 1], s=8, label="Benign")
-plt.scatter(X2[y == 1, 0], X2[y == 1, 1], s=8, label="Malignant")
-plt.legend()
-plt.savefig(os.path.join(PATHS["figures"], "embedding_tsne.png"), dpi=300)
-plt.show()
-
-```
-
-## File: scripts_Classical/train_cnn.py
-
-```py
-import os
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-import json
-import matplotlib.pyplot as plt
-
-from src.classical.cnn import PCamCNN
-from src.data.pcam_loader import get_pcam_dataset
-from src.data.transforms import get_train_transforms, get_eval_transforms
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-set_seed(42)
-#torch.backends.cudnn.benchmark = True
-
-# ----------------------------
-# Load paths
-# ----------------------------
-BASE_ROOT, PATHS = load_paths()
-DATA_ROOT = PATHS["dataset"]
-
-# ----------------------------
-# Config
-# ----------------------------
-BATCH_SIZE = 64
-EPOCHS = 20
-LR = 1e-3
-EMBEDDING_DIM = 32
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-os.makedirs(PATHS["checkpoints"], exist_ok=True)
-os.makedirs(PATHS["logs"], exist_ok=True)
-os.makedirs(PATHS["figures"], exist_ok=True)
-
-# ----------------------------
-# Training / Evaluation loops
-# ----------------------------
-def train_one_epoch(model, loader, criterion, optimizer):
-    model.train()
-    running_loss, correct, total = 0.0, 0, 0
-
-    for images, labels in tqdm(loader, desc="Training", leave=False):
-        images, labels = images.to(DEVICE), labels.to(DEVICE)
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item() * images.size(0)
-        correct += outputs.argmax(1).eq(labels).sum().item()
-        total += labels.size(0)
-
-    return running_loss / total, correct / total
-
-
-@torch.no_grad()
-def evaluate(model, loader, criterion):
-    model.eval()
-    running_loss, correct, total = 0.0, 0, 0
-
-    for images, labels in tqdm(loader, desc="Validation", leave=False):
-        images, labels = images.to(DEVICE), labels.to(DEVICE)
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-
-        running_loss += loss.item() * images.size(0)
-        correct += outputs.argmax(1).eq(labels).sum().item()
-        total += labels.size(0)
-
-    return running_loss / total, correct / total
-
-
-def main():
-    print(f"🚀 Training on device: {DEVICE}")
-
-    train_set = get_pcam_dataset(DATA_ROOT, "train", get_train_transforms())
-    val_set = get_pcam_dataset(DATA_ROOT, "val", get_eval_transforms())
-
-    train_loader = DataLoader(train_set, BATCH_SIZE, shuffle=True, num_workers=6, pin_memory=True)
-    val_loader = DataLoader(val_set, BATCH_SIZE, shuffle=False, num_workers=6, pin_memory=True)
-
-    model = PCamCNN(embedding_dim=EMBEDDING_DIM).to(DEVICE)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=2
-    )
-
-    best_val_acc, patience, wait = 0.0, 5, 0
-    history = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc"]}
-
-    for epoch in range(1, EPOCHS + 1):
-        print(f"\n📘 Epoch {epoch}/{EPOCHS}")
-
-        tr_loss, tr_acc = train_one_epoch(model, train_loader, criterion, optimizer)
-        val_loss, val_acc = evaluate(model, val_loader, criterion)
-        scheduler.step(val_acc)
-
-        history["train_loss"].append(tr_loss)
-        history["train_acc"].append(tr_acc)
-        history["val_loss"].append(val_loss)
-        history["val_acc"].append(val_acc)
-
-        print(f"Train Acc {tr_acc:.4f} | Val Acc {val_acc:.4f}")
-
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            torch.save(model.state_dict(), os.path.join(PATHS["checkpoints"], "pcam_cnn_best.pt"))
-            print("✅ Best validation accuracy reached : Saved checkpoint")
-            wait = 0
-        else:
-            wait += 1
-
-        if wait >= patience:
-            print("⏹️ Early stopping")
-            break
-
-    torch.save(model.state_dict(), os.path.join(PATHS["checkpoints"], "pcam_cnn_final.pt"))
-    print("✅ Final checkpoint saved")
-    # Save logs
-    with open(os.path.join(PATHS["logs"], "train_history.json"), "w") as f:
-        json.dump(history, f, indent=2)
-
-    # Plots
-    epochs = range(1, len(history["train_loss"]) + 1)
-    plt.figure()
-    plt.plot(epochs, history["train_acc"], label="Train")
-    plt.plot(epochs, history["val_acc"], label="Val")
-    plt.legend()
-    plt.savefig(os.path.join(PATHS["figures"], "cnn_accuracy.png"))
-    plt.close()
-
-    plt.figure()
-    plt.plot(epochs, history["train_loss"], label="Train")
-    plt.plot(epochs, history["val_loss"], label="Val")
-    plt.legend()
-    plt.savefig(os.path.join(PATHS["figures"], "cnn_loss.png"))
-    plt.close()
-
-
-if __name__ == "__main__":
-    main()
-
-```
-
-## File: scripts_Classical/visualize_pcam.py
-
-```py
-import matplotlib.pyplot as plt
-from src.data.pcam_loader import get_pcam_dataset
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-set_seed(42)
-
-_, PATHS = load_paths()
-
-dataset = get_pcam_dataset(PATHS["dataset"], "test")
-
-plt.figure(figsize=(10, 5))
-for i in range(2):
-    img, label = dataset[i]
-    plt.subplot(1, 2, i + 1)
-    plt.imshow(img.permute(1, 2, 0))
-    plt.title("Malignant" if label else "Benign")
-    plt.axis("off")
-
-plt.show()
-
-```
-
 ## File: configs/paths.yaml
 
 ```yaml
@@ -950,6 +516,7 @@ def verify(psi, chi):
 ```py
 import os
 import numpy as np
+from src.ISDO.observables.isdo import isdo_observable
 
 class StaticISDOClassifier:
     def __init__(self, proto_dir, K):
@@ -961,9 +528,12 @@ class StaticISDOClassifier:
         }
 
     def predict_one(self, psi):
-        A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])
-        A1 = sum(np.vdot(p, psi) for p in self.prototypes[1])
-        return 1 if np.real(A0 - A1) < 0 else 0
+        #A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])
+        #A1 = sum(np.vdot(p, psi) for p in self.prototypes[1])
+        #return 1 if np.real(A0 - A1) < 0 else 0
+        chi = sum(self.prototypes[0]) - sum(self.prototypes[1])
+        chi /= np.linalg.norm(chi)
+        return 1 if isdo_observable(chi, psi) < 0 else 0
 
     def predict(self, X):
         return np.array([self.predict_one(x) for x in X])
@@ -1307,7 +877,7 @@ from src.utils.seed import set_seed
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.training.winner_take_all_trainer import WinnerTakeAllTrainer
 from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
-from src.IQC.interference.exact_backend import Exact_Backend
+from src.IQC.interference.exact_backend import ExactBackend
 
 
 # -------------------------------------------------
@@ -1499,8 +1069,8 @@ from src.utils.seed import set_seed
 from src.IQC.states.class_state import ClassState
 from src.IQC.encoding.embedding_to_state import embedding_to_state
 from src.IQC.memory.memory_bank import MemoryBank
-from src.IQC.interference.exact_backend import Exact_Backend
-from src.IQC.interference.oracle_backend import Oracle_Backend
+from src.IQC.interference.exact_backend import ExactBackend
+from src.IQC.interference.oracle_backend import OracleBackend
 
 from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
 from src.IQC.inference.weighted_vote_classifier import WeightedVoteClassifier
@@ -1561,8 +1131,8 @@ for _ in range(3):
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
 
-backend = Exact_Backend()
-backend_hadamard = Oracle_Backend()
+backend = ExactBackend()
+backend_hadamard = OracleBackend()
 
 memory_bank = MemoryBank(
     class_states=class_states,
@@ -1635,8 +1205,8 @@ Saved Regime 3-C memory bank.
 ```py
 import numpy as np
 
-from src.IQC.interference.exact_backend import Exact_Backend
-from src.IQC.interference.transition_backend import Transition_Backend
+from src.IQC.interference.exact_backend import ExactBackend
+from src.IQC.interference.transition_backend import TransitionBackend
 
 
 def random_state(n):
@@ -1651,8 +1221,8 @@ def sign(x):
 
 np.random.seed(0)
 
-math_backend = Exact_Backend()
-transition_backend = Transition_Backend()
+math_backend = ExactBackend()
+TransitionBackend = TransitionBackend()
 
 n = 3  # small, exact verification
 num_tests = 50
@@ -1665,7 +1235,7 @@ for _ in range(num_tests):
     psi = random_state(n)
 
     s_math = math_backend.score(chi, psi)
-    s_transition = transition_backend.score(chi, psi)
+    s_transition = TransitionBackend.score(chi, psi)
 
     vals.append((s_math, s_transition))
 
@@ -1986,6 +1556,447 @@ for K in K_VALUES:
 ## File: src/experiments/isdo/prototype/__init__.py
 
 ```py
+
+```
+
+## File: src/experiments/classical/make_embedding_split.py
+
+```py
+import os
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+set_seed(42)
+
+BASE_ROOT, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+indices = np.arange(len(y))
+
+train_idx, test_idx = train_test_split(
+    indices,
+    test_size=0.3,
+    random_state=42,
+    stratify=y
+)
+
+np.save(os.path.join(EMBED_DIR, "split_train_idx.npy"), train_idx)
+np.save(os.path.join(EMBED_DIR, "split_test_idx.npy"), test_idx)
+
+print("Saved split:")
+print("Train:", len(train_idx))
+print("Test :", len(test_idx))
+
+```
+
+## File: src/experiments/classical/train_embedding_models.py
+
+```py
+import os
+import json
+import numpy as np
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, normalize
+from sklearn.metrics import accuracy_score, roc_auc_score
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
+from sklearn.neighbors import KNeighborsClassifier
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+BASE_ROOT, PATHS = load_paths()
+
+EMBED_DIR = PATHS["embeddings"]
+LOG_DIR = PATHS["logs"]
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# ----------------------------
+# Load embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+print("Loaded embeddings:", X.shape)
+
+# ----------------------------
+# Preprocessing
+# ----------------------------
+# 1) Standardize (important for linear models)
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+# 2) L2-normalize (important for similarity & quantum)
+X_l2 = normalize(X_std, norm="l2")
+
+# ----------------------------
+# Train / test split
+# ----------------------------
+
+# Standardized features (LR, SVM)
+Xtr_s = X_std[train_idx]
+Xte_s = X_std[test_idx]
+ytr   = y[train_idx]
+yte   = y[test_idx]
+
+# L2-normalized features (kNN)
+Xtr_l2 = X_l2[train_idx]
+Xte_l2 = X_l2[test_idx]
+
+results = {}
+
+# ==================================================
+# 1️⃣ Logistic Regression (Linear separability)
+# ==================================================
+print("\nTraining Logistic Regression...")
+logreg = LogisticRegression(
+    max_iter=1000,
+    n_jobs=-1
+)
+logreg.fit(Xtr_s, ytr)
+
+pred_lr = logreg.predict(Xte_s)
+proba_lr = logreg.predict_proba(Xte_s)[:, 1]
+
+results["LogisticRegression"] = {
+    "accuracy": accuracy_score(yte, pred_lr),
+    "auc": roc_auc_score(yte, proba_lr)
+}
+
+# ==================================================
+# 2️⃣ Linear SVM (Max-margin)
+# ==================================================
+print("Training Linear SVM...")
+svm = LinearSVC()
+svm.fit(Xtr_s, ytr)
+
+pred_svm = svm.predict(Xte_s)
+
+results["LinearSVM"] = {
+    "accuracy": accuracy_score(yte, pred_svm),
+    "auc": None   # LinearSVC has no probability estimates
+}
+
+# ==================================================
+# 3️⃣ k-NN (Distance-based similarity)
+# ==================================================
+print("Training k-NN...")
+knn = KNeighborsClassifier(
+    n_neighbors=5,
+    metric="euclidean"
+)
+knn.fit(Xtr_l2, ytr)
+print("Knn neighbors:", knn.n_neighbors)
+pred_knn = knn.predict(Xte_l2)
+proba_knn = knn.predict_proba(Xte_l2)[:, 1]
+
+results["kNN"] = {
+    "accuracy": accuracy_score(yte, pred_knn),
+    "auc": roc_auc_score(yte, proba_knn)
+}
+
+# ----------------------------
+# Save results
+# ----------------------------
+with open(os.path.join(LOG_DIR, "embedding_baseline_results.json"), "w") as f:
+    json.dump(results, f, indent=2)
+
+# ----------------------------
+# Print summary
+# ----------------------------
+print("\n=== Embedding Baseline Results ===")
+for model, metrics in results.items():
+    print(
+        f"{model:>18} | "
+        f"Acc: {metrics['accuracy']:.4f} | "
+        f"AUC: {metrics['auc']}"
+    )
+
+## output 
+"""
+🌱 Global seed set to 42
+Loaded embeddings: (5000, 32)
+
+Training Logistic Regression...
+Training Linear SVM...
+Training k-NN...
+Knn neighbors: 5
+
+=== Embedding Baseline Results ===
+LogisticRegression | Acc: 0.9087 | AUC: 0.9706703413940256
+         LinearSVM | Acc: 0.9120 | AUC: None
+               kNN | Acc: 0.9260 | AUC: 0.9690398293029872
+"""
+```
+
+## File: src/experiments/classical/extract_embeddings.py
+
+```py
+import os
+import torch
+import numpy as np
+from torch.utils.data import DataLoader, Subset
+from tqdm import tqdm
+
+from src.classical.cnn import PCamCNN
+from src.data.pcam_loader import get_pcam_dataset
+from src.data.transforms import get_eval_transforms
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+set_seed(42)
+
+BASE_ROOT, PATHS = load_paths()
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+CHECKPOINT = os.path.join(PATHS["checkpoints"], "pcam_cnn_best.pt")
+os.makedirs(PATHS["embeddings"], exist_ok=True)
+
+model = PCamCNN(embedding_dim=32).to(DEVICE)
+model.load_state_dict(torch.load(CHECKPOINT, map_location=DEVICE))
+model.eval()
+
+dataset = get_pcam_dataset(PATHS["dataset"], "val", get_eval_transforms())
+subset = Subset(dataset, range(5000))
+loader = DataLoader(subset, batch_size=128, num_workers=6, pin_memory=True)
+
+embeds, labels , lable_polar = [], [] , []
+
+with torch.no_grad():
+    for x, y in tqdm(loader):
+        z = model(x.to(DEVICE), return_embedding=True)
+        embeds.append(z.cpu().numpy())
+        labels.append(y.numpy())
+        lable_polar.append((y.numpy())*2 - 1)
+
+np.save(os.path.join(PATHS["embeddings"], "val_embeddings.npy"), np.vstack(embeds).astype(np.float64))
+np.save(os.path.join(PATHS["embeddings"], "val_labels.npy"), np.concatenate(labels).astype(np.float64))
+np.save(os.path.join(PATHS["embeddings"], "val_labels_polar.npy"), np.concatenate(lable_polar).astype(np.float64))
+```
+
+## File: src/experiments/classical/visualize_embeddings.py
+
+```py
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+set_seed(42)
+
+_, PATHS = load_paths()
+
+X = np.load(os.path.join(PATHS["embeddings"], "val_embeddings.npy"))
+y = np.load(os.path.join(PATHS["embeddings"], "val_labels.npy"))
+
+tsne = TSNE(n_components=2, perplexity=30, max_iter=1000, random_state=42)
+X2 = tsne.fit_transform(X)
+
+plt.figure(figsize=(7, 6))
+plt.scatter(X2[y == 0, 0], X2[y == 0, 1], s=8, label="Benign")
+plt.scatter(X2[y == 1, 0], X2[y == 1, 1], s=8, label="Malignant")
+plt.legend()
+plt.savefig(os.path.join(PATHS["figures"], "embedding_tsne.png"), dpi=300)
+plt.show()
+
+```
+
+## File: src/experiments/classical/train_cnn.py
+
+```py
+import os
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+import json
+import matplotlib.pyplot as plt
+
+from src.classical.cnn import PCamCNN
+from src.data.pcam_loader import get_pcam_dataset
+from src.data.transforms import get_train_transforms, get_eval_transforms
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+set_seed(42)
+#torch.backends.cudnn.benchmark = True
+
+# ----------------------------
+# Load paths
+# ----------------------------
+BASE_ROOT, PATHS = load_paths()
+DATA_ROOT = PATHS["dataset"]
+
+# ----------------------------
+# Config
+# ----------------------------
+BATCH_SIZE = 64
+EPOCHS = 20
+LR = 1e-3
+EMBEDDING_DIM = 32
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+os.makedirs(PATHS["checkpoints"], exist_ok=True)
+os.makedirs(PATHS["logs"], exist_ok=True)
+os.makedirs(PATHS["figures"], exist_ok=True)
+
+# ----------------------------
+# Training / Evaluation loops
+# ----------------------------
+def train_one_epoch(model, loader, criterion, optimizer):
+    model.train()
+    running_loss, correct, total = 0.0, 0, 0
+
+    for images, labels in tqdm(loader, desc="Training", leave=False):
+        images, labels = images.to(DEVICE), labels.to(DEVICE)
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item() * images.size(0)
+        correct += outputs.argmax(1).eq(labels).sum().item()
+        total += labels.size(0)
+
+    return running_loss / total, correct / total
+
+
+@torch.no_grad()
+def evaluate(model, loader, criterion):
+    model.eval()
+    running_loss, correct, total = 0.0, 0, 0
+
+    for images, labels in tqdm(loader, desc="Validation", leave=False):
+        images, labels = images.to(DEVICE), labels.to(DEVICE)
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+
+        running_loss += loss.item() * images.size(0)
+        correct += outputs.argmax(1).eq(labels).sum().item()
+        total += labels.size(0)
+
+    return running_loss / total, correct / total
+
+
+def main():
+    print(f"🚀 Training on device: {DEVICE}")
+
+    train_set = get_pcam_dataset(DATA_ROOT, "train", get_train_transforms())
+    val_set = get_pcam_dataset(DATA_ROOT, "val", get_eval_transforms())
+
+    train_loader = DataLoader(train_set, BATCH_SIZE, shuffle=True, num_workers=6, pin_memory=True)
+    val_loader = DataLoader(val_set, BATCH_SIZE, shuffle=False, num_workers=6, pin_memory=True)
+
+    model = PCamCNN(embedding_dim=EMBEDDING_DIM).to(DEVICE)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="max", factor=0.5, patience=2
+    )
+
+    best_val_acc, patience, wait = 0.0, 5, 0
+    history = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc"]}
+
+    for epoch in range(1, EPOCHS + 1):
+        print(f"\n📘 Epoch {epoch}/{EPOCHS}")
+
+        tr_loss, tr_acc = train_one_epoch(model, train_loader, criterion, optimizer)
+        val_loss, val_acc = evaluate(model, val_loader, criterion)
+        scheduler.step(val_acc)
+
+        history["train_loss"].append(tr_loss)
+        history["train_acc"].append(tr_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+
+        print(f"Train Acc {tr_acc:.4f} | Val Acc {val_acc:.4f}")
+
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            torch.save(model.state_dict(), os.path.join(PATHS["checkpoints"], "pcam_cnn_best.pt"))
+            print("✅ Best validation accuracy reached : Saved checkpoint")
+            wait = 0
+        else:
+            wait += 1
+
+        if wait >= patience:
+            print("⏹️ Early stopping")
+            break
+
+    torch.save(model.state_dict(), os.path.join(PATHS["checkpoints"], "pcam_cnn_final.pt"))
+    print("✅ Final checkpoint saved")
+    # Save logs
+    with open(os.path.join(PATHS["logs"], "train_history.json"), "w") as f:
+        json.dump(history, f, indent=2)
+
+    # Plots
+    epochs = range(1, len(history["train_loss"]) + 1)
+    plt.figure()
+    plt.plot(epochs, history["train_acc"], label="Train")
+    plt.plot(epochs, history["val_acc"], label="Val")
+    plt.legend()
+    plt.savefig(os.path.join(PATHS["figures"], "cnn_accuracy.png"))
+    plt.close()
+
+    plt.figure()
+    plt.plot(epochs, history["train_loss"], label="Train")
+    plt.plot(epochs, history["val_loss"], label="Val")
+    plt.legend()
+    plt.savefig(os.path.join(PATHS["figures"], "cnn_loss.png"))
+    plt.close()
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+## File: src/experiments/classical/__init__.py
+
+```py
+
+```
+
+## File: src/experiments/classical/visualize_pcam.py
+
+```py
+import matplotlib.pyplot as plt
+from src.data.pcam_loader import get_pcam_dataset
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+set_seed(42)
+
+_, PATHS = load_paths()
+
+dataset = get_pcam_dataset(PATHS["dataset"], "test")
+
+plt.figure(figsize=(10, 5))
+for i in range(2):
+    img, label = dataset[i]
+    plt.subplot(1, 2, i + 1)
+    plt.imshow(img.permute(1, 2, 0))
+    plt.title("Malignant" if label else "Benign")
+    plt.axis("off")
+
+plt.show()
 
 ```
 
@@ -2331,6 +2342,7 @@ class MemoryBank:
     def winner(self, psi):
         scores = self.scores(psi)
         idx = int(max(range(len(scores)), key=lambda i: abs(scores[i])))
+        #idx = int(max(range(len(scores)), key=lambda i: scores[i])) ## causes lower score ??
         return idx, scores[idx]
 
     def add_memory(self, chi_vector):
@@ -2374,7 +2386,7 @@ from qiskit.circuit.library import UnitaryGate, StatePreparation  # ✅ Correct 
 from .base import InterferenceBackend
 
 
-class Transition_Backend(InterferenceBackend):
+class TransitionBackend(InterferenceBackend):
     """
     CORRECT physical Hadamard-test using transition unitary.
     
@@ -2416,8 +2428,8 @@ class Transition_Backend(InterferenceBackend):
     @staticmethod
     def _build_transition_unitary(psi, chi):
         """Build U_chi_psi = U_chi @ U_psi^dagger"""
-        U_psi = Transition_Backend._statevector_to_unitary(psi)
-        U_chi = Transition_Backend._statevector_to_unitary(chi)
+        U_psi = TransitionBackend._statevector_to_unitary(psi)
+        U_chi = TransitionBackend._statevector_to_unitary(chi)
         
         # Transition unitary
         U_chi_psi = U_chi @ U_psi.conj().T
@@ -2466,7 +2478,7 @@ class Transition_Backend(InterferenceBackend):
 import numpy as np
 from .base import InterferenceBackend
 
-class Exact_Backend(InterferenceBackend):
+class ExactBackend(InterferenceBackend):
     """
     Numpy-based interference backend.
     This reproduces existing behavior exactly.
@@ -2487,7 +2499,7 @@ from qiskit.circuit.library import StatePreparation  # ✅ Correct import
 from .base import InterferenceBackend
 
 # If you also want the conceptual/oracle version:
-class Oracle_Backend(InterferenceBackend):
+class OracleBackend(InterferenceBackend):
     """
     CONCEPTUAL Hadamard-test using oracle state preparation.
     
