@@ -10,9 +10,9 @@ Only Circuit B' gives the true ISDO observable: Re⟨χ|ψ⟩
 """
 
 import numpy as np
-from src.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
-from src.rfc.reflection_classifier import run_isdo_circuit_b
-from src.isdo.circuits.circuit_b_prime_transition import run_isdo_circuit_b_prime, verify_isdo_b_prime
+from src.quantum.isdo.circuits.circuit_a_controlled_state import run_isdo_circuit_a
+from src.archive.rfc.reflection_classifier import run_isdo_circuit_b
+from src.quantum.isdo.circuits.circuit_b_prime_transition import run_isdo_circuit_b_prime, verify_isdo_b_prime
 
 
 def test_all_circuits():

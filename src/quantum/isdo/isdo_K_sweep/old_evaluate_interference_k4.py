@@ -39,8 +39,8 @@ def to_quantum_state(x):
 # ----------------------------
 def load_class_superposition(cls):
     protos = []
-    for k in range(K):
-        p = np.load(os.path.join(CLASS_DIR, f"class{cls}_proto{k}.npy"))
+    for k in range(1,K):
+        p = np.load(os.path.join(CLASS_DIR, f"K{cls}/class{cls}_proto{k}.npy"))
         protos.append(p)
 
     # Build joint state |k> |phi_k>

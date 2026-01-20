@@ -3,8 +3,8 @@ import json
 import numpy as np
 from sklearn.preprocessing import normalize
 
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
+from ... utils.paths import load_paths
+from ... utils.seed import set_seed
 
 
 # ----------------------------
