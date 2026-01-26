@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from tqdm import tqdm
 from src.ISDO.observables.isdo import isdo_observable
 
 class StaticISDOClassifier:
@@ -20,4 +21,4 @@ class StaticISDOClassifier:
         return 1 if isdo_observable(chi, psi) < 0 else 0
 
     def predict(self, X):
-        return np.array([self.predict_one(x) for x in X])
+        return np.array([self.predict_one(x) for x in tqdm(X, desc="ISDO Prediction", leave=False)])

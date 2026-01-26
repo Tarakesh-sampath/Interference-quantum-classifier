@@ -1,7 +1,11 @@
 import numpy as np
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, transpile
 from qiskit.quantum_info import Statevector, Pauli
+from qiskit_aer import AerSimulator
 from src.utils.common import build_transition_unitary
+
+# Initialize high-performance GPU simulator
+BACKEND = AerSimulator(method='statevector', device='GPU')
 
 def build(psi, chi):
     """
@@ -50,16 +54,21 @@ def build(psi, chi):
 
 def run(psi, chi):
     """
-    Exact (statevector) evaluation of ⟨Z⟩ which gives Re⟨χ|ψ⟩
-    
-    This is the CORRECT physical implementation of ISDO.
+    GPU-accelerated evaluation of Re⟨χ|ψ⟩ using AerSimulator
     """
     # Inputs are assumed normalized at this stage
     qc = build(psi, chi)
-    #qc.draw(output='mpl', filename='transition_isdo.png')
+    
+    # Use Aer's internal expectation value for speed
     qc_no_meas = qc.remove_final_measurements(inplace=False)
-    sv = Statevector.from_instruction(qc_no_meas)
-    z_exp = sv.expectation_value(Pauli('Z'), [0]).real
+    qc_no_meas.save_expectation_value(Pauli('Z'), [0], label='isdo')
+    
+    # Transpile for the backend to decompose complex instructions like StatePreparation
+    qc_optimized = transpile(qc_no_meas, BACKEND)
+    
+    # Run on GPU backend
+    result = BACKEND.run(qc_optimized).result()
+    z_exp = result.data()['isdo'].real
     return z_exp
 
 
