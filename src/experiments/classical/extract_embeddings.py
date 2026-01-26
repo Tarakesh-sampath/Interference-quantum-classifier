@@ -31,9 +31,13 @@ embeds, labels , lable_polar = [], [] , []
 with torch.no_grad():
     for x, y in tqdm(loader):
         z = model(x.to(DEVICE), return_embedding=True)
+        # Convert to float64 FIRST, then normalize for maximum precision
+        z = z.to(torch.float64)
+        z = torch.nn.functional.normalize(z, p=2, dim=1)
+        
         embeds.append(z.cpu().numpy())
-        labels.append(y.numpy())
-        lable_polar.append((y.numpy())*2 - 1)
+        labels.append(y.numpy().astype(np.float64))
+        lable_polar.append(((y.numpy())*2 - 1).astype(np.float64))
 
 np.save(os.path.join(PATHS["embeddings"], "val_embeddings.npy"), np.vstack(embeds).astype(np.float64))
 np.save(os.path.join(PATHS["embeddings"], "val_labels.npy"), np.concatenate(labels).astype(np.float64))

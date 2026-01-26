@@ -1,7 +1,6 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
-#from qiskit.circuit.library import UnitaryGate
 from src.utils.common import build_transition_unitary
 
 def build(psi, chi):
@@ -19,14 +18,17 @@ def build(psi, chi):
     
     This produces LINEAR interference, not quadratic!
     """
+    # Ensure complex128 for Qiskit compatibility
+    psi = np.asarray(psi, dtype=np.complex128)
+    chi = np.asarray(chi, dtype=np.complex128)
+
     n = int(np.log2(len(psi)))
     qc = QuantumCircuit(1 + n, 1)
     
     anc = 0
     data = list(range(1, n + 1))
     
-    # Prepare |ψ⟩ on data qubits (in practice, this comes from previous computation)
-    # For simulation, we'll use state preparation
+    # Prepare |ψ⟩ on data qubits
     from qiskit.circuit.library import StatePreparation
     qc.append(StatePreparation(psi), data)
     
@@ -52,7 +54,9 @@ def run(psi, chi):
     
     This is the CORRECT physical implementation of ISDO.
     """
+    # Inputs are assumed normalized at this stage
     qc = build(psi, chi)
+    qc.draw(output='mpl', filename='transition_isdo.png')
     qc_no_meas = qc.remove_final_measurements(inplace=False)
     sv = Statevector.from_instruction(qc_no_meas)
     z_exp = sv.expectation_value(Pauli('Z'), [0]).real

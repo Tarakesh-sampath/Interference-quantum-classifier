@@ -1,9 +1,15 @@
-# src/quantum/observables/isdo.py
+# src/ISDO/observables/isdo.py
 import numpy as np
+from src.ISDO.circuits.transition_isdo import run as run_isdo_circuit
 
-def isdo_observable(chi, psi) -> float:
+def isdo_observable(chi, psi, real=False) -> float:
     """
     ISDO observable:
     Linear interference score Re⟨χ|ψ⟩
     """
-    return float(np.real(np.vdot(chi, psi)))
+    if real:
+        return float(np.real(np.vdot(chi, psi)))
+    else:
+        # Use the quantum circuit to compute the observable
+        return run_isdo_circuit(psi, chi)
+

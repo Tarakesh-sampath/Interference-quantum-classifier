@@ -35,28 +35,24 @@ test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
 print("Loaded embeddings:", X.shape)
 
 # ----------------------------
-# Preprocessing
+# Preprocessing (DEPRECATED: Now handled in extract_embeddings.py)
 # ----------------------------
-# 1) Standardize (important for linear models)
-scaler = StandardScaler()
-X_std = scaler.fit_transform(X)
-
-# 2) L2-normalize (important for similarity & quantum)
-X_l2 = normalize(X_std, norm="l2")
+# # 1) Standardize (important for linear models)
+# scaler = StandardScaler()
+# X_std = scaler.fit_transform(X)
+# 
+# # 2) L2-normalize (important for similarity & quantum)
+# X_l2 = normalize(X_std, norm="l2")
 
 # ----------------------------
 # Train / test split
 # ----------------------------
 
-# Standardized features (LR, SVM)
-Xtr_s = X_std[train_idx]
-Xte_s = X_std[test_idx]
-ytr   = y[train_idx]
-yte   = y[test_idx]
-
-# L2-normalized features (kNN)
-Xtr_l2 = X_l2[train_idx]
-Xte_l2 = X_l2[test_idx]
+# Using raw pre-normalized float64 embeddings for all models
+Xtr = X[train_idx]
+Xte = X[test_idx]
+ytr = y[train_idx]
+yte = y[test_idx]
 
 results = {}
 
@@ -68,10 +64,10 @@ logreg = LogisticRegression(
     max_iter=1000,
     n_jobs=-1
 )
-logreg.fit(Xtr_s, ytr)
+logreg.fit(Xtr, ytr)
 
-pred_lr = logreg.predict(Xte_s)
-proba_lr = logreg.predict_proba(Xte_s)[:, 1]
+pred_lr = logreg.predict(Xte)
+proba_lr = logreg.predict_proba(Xte)[:, 1]
 
 results["LogisticRegression"] = {
     "accuracy": accuracy_score(yte, pred_lr),
@@ -83,9 +79,9 @@ results["LogisticRegression"] = {
 # ==================================================
 print("Training Linear SVM...")
 svm = LinearSVC()
-svm.fit(Xtr_s, ytr)
+svm.fit(Xtr, ytr)
 
-pred_svm = svm.predict(Xte_s)
+pred_svm = svm.predict(Xte)
 
 results["LinearSVM"] = {
     "accuracy": accuracy_score(yte, pred_svm),
@@ -100,10 +96,10 @@ knn = KNeighborsClassifier(
     n_neighbors=5,
     metric="euclidean"
 )
-knn.fit(Xtr_l2, ytr)
+knn.fit(Xtr, ytr)
 print("Knn neighbors:", knn.n_neighbors)
-pred_knn = knn.predict(Xte_l2)
-proba_knn = knn.predict_proba(Xte_l2)[:, 1]
+pred_knn = knn.predict(Xte)
+proba_knn = knn.predict_proba(Xte)[:, 1]
 
 results["kNN"] = {
     "accuracy": accuracy_score(yte, pred_knn),
@@ -138,7 +134,7 @@ Training k-NN...
 Knn neighbors: 5
 
 === Embedding Baseline Results ===
-LogisticRegression | Acc: 0.9087 | AUC: 0.9706703413940256
-         LinearSVM | Acc: 0.9120 | AUC: None
-               kNN | Acc: 0.9260 | AUC: 0.9690398293029872
+LogisticRegression | Acc: 0.9047 | AUC: 0.9664224751066857
+         LinearSVM | Acc: 0.9053 | AUC: None
+               kNN | Acc: 0.9260 | AUC: 0.9711219772403983
 """

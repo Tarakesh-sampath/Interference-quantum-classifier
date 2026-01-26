@@ -25,7 +25,7 @@ DATA_ROOT = PATHS["dataset"]
 # Config
 # ----------------------------
 BATCH_SIZE = 64
-EPOCHS = 20
+EPOCHS = 30
 LR = 1e-3
 EMBEDDING_DIM = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -89,10 +89,10 @@ def main():
         optimizer, mode="max", factor=0.5, patience=2
     )
 
-    best_val_acc, patience, wait = 0.0, 5, 0
+    best_val_acc, patience, wait = 0.0, 10, 0
     history = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc"]}
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, EPOCHS + 1): 
         print(f"\n📘 Epoch {epoch}/{EPOCHS}")
 
         tr_loss, tr_acc = train_one_epoch(model, train_loader, criterion, optimizer)
