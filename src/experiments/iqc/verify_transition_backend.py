@@ -1,5 +1,4 @@
 import numpy as np
-
 from src.IQC.interference.exact_backend import ExactBackend
 from src.IQC.interference.transition_backend import TransitionBackend
 

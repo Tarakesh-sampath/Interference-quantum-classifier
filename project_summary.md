@@ -20,6 +20,7 @@ measurement-free-quantum-classifier/
                 static_isdo_classifier.py
                 __init__.py
         utils/
+            common_backup.py
             common.py
             paths.py
             seed.py
@@ -53,6 +54,7 @@ measurement-free-quantum-classifier/
                 extract_embeddings.py
                 visualize_embeddings.py
                 train_cnn.py
+                verify_embbeings.py
                 __init__.py
                 visualize_pcam.py
         IQC/
@@ -129,6 +131,13 @@ measurement-free-quantum-classifier/
             inference/
                 regime3a_classifier.py
                 __init__.py
+    research_docs/
+        comparison_report.md
+        implementation_plan.md
+        interference_quantum_classifier_iqc_paper_draft_non_claim_leaking.md
+        Fidelity_and_Measurement_Free_Methods_Comparison.md
+        research_answers.md
+        project_blueprint.md
     results/
         artifacts/
             regime3c_memory.pkl
@@ -138,10 +147,8 @@ measurement-free-quantum-classifier/
         embeddings/
             val_labels.npy
             val_labels_polar.npy
-            class_state_1.npy
             val_embeddings.npy
             split_test_idx.npy
-            class_state_0.npy
             split_train_idx.npy
             class_states_meta.json
             class_prototypes/
@@ -397,15 +404,21 @@ class_count:
 ## File: src/ISDO/observables/isdo.py
 
 ```py
-# src/quantum/observables/isdo.py
+# src/ISDO/observables/isdo.py
 import numpy as np
+from src.ISDO.circuits.transition_isdo import run as run_isdo_circuit
 
-def isdo_observable(chi, psi) -> float:
+def isdo_observable(chi, psi, real=True) -> float:
     """
     ISDO observable:
     Linear interference score Re⟨χ|ψ⟩
     """
-    return float(np.real(np.vdot(chi, psi)))
+    if real:
+        return float(np.real(np.vdot(chi, psi)))
+    else:
+        # Use the quantum circuit to compute the observable
+        return run_isdo_circuit(psi, chi)
+
 
 ```
 
@@ -421,7 +434,6 @@ def isdo_observable(chi, psi) -> float:
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector, Pauli
-#from qiskit.circuit.library import UnitaryGate
 from src.utils.common import build_transition_unitary
 
 def build(psi, chi):
@@ -439,14 +451,17 @@ def build(psi, chi):
     
     This produces LINEAR interference, not quadratic!
     """
+    # Ensure complex128 for Qiskit compatibility
+    psi = np.asarray(psi, dtype=np.complex128)
+    chi = np.asarray(chi, dtype=np.complex128)
+
     n = int(np.log2(len(psi)))
     qc = QuantumCircuit(1 + n, 1)
     
     anc = 0
     data = list(range(1, n + 1))
     
-    # Prepare |ψ⟩ on data qubits (in practice, this comes from previous computation)
-    # For simulation, we'll use state preparation
+    # Prepare |ψ⟩ on data qubits
     from qiskit.circuit.library import StatePreparation
     qc.append(StatePreparation(psi), data)
     
@@ -461,7 +476,7 @@ def build(psi, chi):
     qc.h(anc)
     
     # Measure ancilla
-    qc.measure(anc, 0)
+    #qc.measure(anc, 0)
     
     return qc
 
@@ -473,8 +488,8 @@ def run(psi, chi):
     This is the CORRECT physical implementation of ISDO.
     """
     qc = build(psi, chi)
-    qc_no_meas = qc.remove_final_measurements(inplace=False)
-    sv = Statevector.from_instruction(qc_no_meas)
+    #qc_no_meas = qc.remove_final_measurements(inplace=False)
+    sv = Statevector.from_instruction(qc)
     z_exp = sv.expectation_value(Pauli('Z'), [0]).real
     return z_exp
 
@@ -516,6 +531,7 @@ def verify(psi, chi):
 ```py
 import os
 import numpy as np
+from tqdm import tqdm
 from src.ISDO.observables.isdo import isdo_observable
 
 class StaticISDOClassifier:
@@ -536,7 +552,7 @@ class StaticISDOClassifier:
         return 1 if isdo_observable(chi, psi) < 0 else 0
 
     def predict(self, X):
-        return np.array([self.predict_one(x) for x in X])
+        return np.array([self.predict_one(x) for x in tqdm(X, desc="ISDO Prediction", leave=False)])
 
 ```
 
@@ -546,7 +562,7 @@ class StaticISDOClassifier:
 
 ```
 
-## File: src/utils/common.py
+## File: src/utils/common_backup.py
 
 ```py
 import numpy as np
@@ -609,6 +625,120 @@ def statevector_to_unitary(psi):
             U[:, i] = v / np.linalg.norm(v)
     
     return U
+
+
+def build_transition_unitary(psi, chi):
+    """
+    Build the transition unitary U_chi_psi = U_chi @ U_psi^dagger
+    
+    This is the KEY OPERATION for physically realizable ISDO (Circuit B').
+    
+    This unitary satisfies: U_chi_psi |psi⟩ = |chi⟩
+    
+    Args:
+        psi: Source statevector
+        chi: Target statevector
+    
+    Returns:
+        UnitaryGate that implements the transition
+    """
+    # Build unitaries that prepare each state from |0...0⟩
+    U_psi = statevector_to_unitary(psi)
+    U_chi = statevector_to_unitary(chi)
+    
+    # Transition unitary: U_chi @ U_psi^dagger
+    U_chi_psi = U_chi @ U_psi.conj().T
+    
+    # Verify it works
+    psi_normalized = np.asarray(psi, dtype=np.complex128)
+    psi_normalized = psi_normalized / np.linalg.norm(psi_normalized)
+    chi_normalized = np.asarray(chi, dtype=np.complex128)
+    chi_normalized = chi_normalized / np.linalg.norm(chi_normalized)
+    
+    result = U_chi_psi @ psi_normalized
+    if not np.allclose(result, chi_normalized, atol=1e-10):
+        raise ValueError("Transition unitary does not correctly map |psi⟩ to |chi⟩")
+    
+    return UnitaryGate(U_chi_psi)
+
+
+def build_chi_state(class0_protos, class1_protos):
+    """
+    Build |chi> = sum_k |phi_k^0> - sum_k |phi_k^1>, normalized
+    
+    This constructs the reference state for ISDO classification.
+    """
+    chi = np.zeros_like(class0_protos[0], dtype=np.float64)
+
+    for p in class0_protos:
+        chi += p
+    for p in class1_protos:
+        chi -= p
+
+    chi /= np.linalg.norm(chi)
+    return chi
+```
+
+## File: src/utils/common.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.circuit.library import StatePreparation, UnitaryGate
+
+
+def load_statevector(vec):
+    """
+    Create a Qiskit StatePreparation gate from a normalized vector.
+    
+    NOTE: This is for CONCEPTUAL/ORACLE model only (Circuit A)
+    For physical implementation, use build_transition_unitary instead
+    """
+    vec = np.asarray(vec, dtype=np.complex128)
+    norm = np.linalg.norm(vec)
+    if not np.isclose(norm, 1.0, atol=1e-12):
+        raise ValueError("Statevector must be normalized")
+    return StatePreparation(vec)
+
+
+def statevector_to_unitary(psi):
+    """
+    Convert a statevector to a unitary operator using Householder efficiency.
+    Construct a Householder reflection U such that U |e1> = |psi>
+    where e1 = [1, 0, ..., 0]^T.
+    
+    This is O(D^2) to build the matrix, compared to O(D^3) for Gram-Schmidt.
+    """
+    psi = np.asarray(psi, dtype=np.complex128)
+    norm = np.linalg.norm(psi)
+    if norm > 1e-15:
+        psi = psi / norm
+    
+    dim = len(psi)
+    e1 = np.zeros(dim, dtype=np.complex128)
+    e1[0] = 1.0
+    
+    # Adjust phase to avoid numerical instability (choose phase to make w large)
+    # We want to map phase * e1 to psi where phase has same angle as psi[0]
+    # This ensures w = phase * e1 - psi is stable.
+    angle = np.angle(psi[0]) if np.abs(psi[0]) > 1e-10 else 0.0
+    phase = np.exp(1j * angle)
+    
+    target = phase * e1
+    w = target - psi
+    w_norm = np.linalg.norm(w)
+    
+    if w_norm < 1e-12:
+        # psi is already phase * e1, so just return identity * phase
+        return np.eye(dim, dtype=np.complex128) * phase
+    
+    v = w / w_norm
+    # R = I - 2vv* maps target (phase * e1) to psi
+    # R * phase * e1 = psi  => R * e1 = psi * phase*
+    # To get U * e1 = psi, we need U = R * phase
+    H = (np.eye(dim, dtype=np.complex128) - 2.0 * np.outer(v, v.conj())) * phase
+    return H
+
 
 
 def build_transition_unitary(psi, chi):
@@ -1634,28 +1764,24 @@ test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
 print("Loaded embeddings:", X.shape)
 
 # ----------------------------
-# Preprocessing
+# Preprocessing (DEPRECATED: Now handled in extract_embeddings.py)
 # ----------------------------
-# 1) Standardize (important for linear models)
-scaler = StandardScaler()
-X_std = scaler.fit_transform(X)
-
-# 2) L2-normalize (important for similarity & quantum)
-X_l2 = normalize(X_std, norm="l2")
+# # 1) Standardize (important for linear models)
+# scaler = StandardScaler()
+# X_std = scaler.fit_transform(X)
+# 
+# # 2) L2-normalize (important for similarity & quantum)
+# X_l2 = normalize(X_std, norm="l2")
 
 # ----------------------------
 # Train / test split
 # ----------------------------
 
-# Standardized features (LR, SVM)
-Xtr_s = X_std[train_idx]
-Xte_s = X_std[test_idx]
-ytr   = y[train_idx]
-yte   = y[test_idx]
-
-# L2-normalized features (kNN)
-Xtr_l2 = X_l2[train_idx]
-Xte_l2 = X_l2[test_idx]
+# Using raw pre-normalized float64 embeddings for all models
+Xtr = X[train_idx]
+Xte = X[test_idx]
+ytr = y[train_idx]
+yte = y[test_idx]
 
 results = {}
 
@@ -1667,10 +1793,10 @@ logreg = LogisticRegression(
     max_iter=1000,
     n_jobs=-1
 )
-logreg.fit(Xtr_s, ytr)
+logreg.fit(Xtr, ytr)
 
-pred_lr = logreg.predict(Xte_s)
-proba_lr = logreg.predict_proba(Xte_s)[:, 1]
+pred_lr = logreg.predict(Xte)
+proba_lr = logreg.predict_proba(Xte)[:, 1]
 
 results["LogisticRegression"] = {
     "accuracy": accuracy_score(yte, pred_lr),
@@ -1682,9 +1808,9 @@ results["LogisticRegression"] = {
 # ==================================================
 print("Training Linear SVM...")
 svm = LinearSVC()
-svm.fit(Xtr_s, ytr)
+svm.fit(Xtr, ytr)
 
-pred_svm = svm.predict(Xte_s)
+pred_svm = svm.predict(Xte)
 
 results["LinearSVM"] = {
     "accuracy": accuracy_score(yte, pred_svm),
@@ -1699,10 +1825,10 @@ knn = KNeighborsClassifier(
     n_neighbors=5,
     metric="euclidean"
 )
-knn.fit(Xtr_l2, ytr)
+knn.fit(Xtr, ytr)
 print("Knn neighbors:", knn.n_neighbors)
-pred_knn = knn.predict(Xte_l2)
-proba_knn = knn.predict_proba(Xte_l2)[:, 1]
+pred_knn = knn.predict(Xte)
+proba_knn = knn.predict_proba(Xte)[:, 1]
 
 results["kNN"] = {
     "accuracy": accuracy_score(yte, pred_knn),
@@ -1737,9 +1863,9 @@ Training k-NN...
 Knn neighbors: 5
 
 === Embedding Baseline Results ===
-LogisticRegression | Acc: 0.9087 | AUC: 0.9706703413940256
-         LinearSVM | Acc: 0.9120 | AUC: None
-               kNN | Acc: 0.9260 | AUC: 0.9690398293029872
+LogisticRegression | Acc: 0.9047 | AUC: 0.9664224751066857
+         LinearSVM | Acc: 0.9053 | AUC: None
+               kNN | Acc: 0.9260 | AUC: 0.9711219772403983
 """
 ```
 
@@ -1779,9 +1905,13 @@ embeds, labels , lable_polar = [], [] , []
 with torch.no_grad():
     for x, y in tqdm(loader):
         z = model(x.to(DEVICE), return_embedding=True)
+        # Convert to float64 FIRST, then normalize for maximum precision
+        z = z.to(torch.float64)
+        z = torch.nn.functional.normalize(z, p=2, dim=1)
+        
         embeds.append(z.cpu().numpy())
-        labels.append(y.numpy())
-        lable_polar.append((y.numpy())*2 - 1)
+        labels.append(y.numpy().astype(np.float64))
+        lable_polar.append(((y.numpy())*2 - 1).astype(np.float64))
 
 np.save(os.path.join(PATHS["embeddings"], "val_embeddings.npy"), np.vstack(embeds).astype(np.float64))
 np.save(os.path.join(PATHS["embeddings"], "val_labels.npy"), np.concatenate(labels).astype(np.float64))
@@ -1847,7 +1977,7 @@ DATA_ROOT = PATHS["dataset"]
 # Config
 # ----------------------------
 BATCH_SIZE = 64
-EPOCHS = 20
+EPOCHS = 30
 LR = 1e-3
 EMBEDDING_DIM = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -1911,10 +2041,10 @@ def main():
         optimizer, mode="max", factor=0.5, patience=2
     )
 
-    best_val_acc, patience, wait = 0.0, 5, 0
+    best_val_acc, patience, wait = 0.0, 10, 0
     history = {k: [] for k in ["train_loss", "train_acc", "val_loss", "val_acc"]}
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, EPOCHS + 1): 
         print(f"\n📘 Epoch {epoch}/{EPOCHS}")
 
         tr_loss, tr_acc = train_one_epoch(model, train_loader, criterion, optimizer)
@@ -1965,6 +2095,52 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+```
+
+## File: src/experiments/classical/verify_embbeings.py
+
+```py
+import os
+import numpy as np
+from src.utils.paths import load_paths
+
+def verify_embeddings():
+    BASE_ROOT, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+    
+    file_path = os.path.join(EMBED_DIR, "val_embeddings.npy")
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}")
+        return
+
+    print(f"Verifying: {file_path}")
+    X = np.load(file_path)
+    print(f"Shape: {X.shape}, Dtype: {X.dtype}")
+
+    # Calculate norm-squared for each sample
+    norms_sq = np.sum(X**2, axis=1)
+    
+    max_val = np.max(norms_sq)
+    min_val = np.min(norms_sq)
+    mean_val = np.mean(norms_sq)
+    
+    print(f"Max norm squared:  {max_val:.15f}")
+    print(f"Min norm squared:  {min_val:.15f}")
+    print(f"Mean norm squared: {mean_val:.15f}")
+    
+    # Qiskit usually has a tolerance around 1e-8 or 1e-10
+    tolerance = 1e-8
+    violations = np.sum(np.abs(norms_sq - 1.0) > tolerance)
+    
+    print(f"Violations (> {tolerance} absolute diff from 1.0): {violations}")
+    
+    if violations > 0:
+        idx = np.argmax(np.abs(norms_sq - 1.0))
+        print(f"Worst violation at index {idx}: {norms_sq[idx]:.15f}")
+
+if __name__ == "__main__":
+    verify_embeddings()
 
 ```
 
@@ -2379,97 +2555,24 @@ class InterferenceBackend(ABC):
 ## File: src/IQC/interference/transition_backend.py
 
 ```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, Pauli
-from qiskit.circuit.library import UnitaryGate, StatePreparation  # ✅ Correct import
+from src.ISDO.circuits.transition_isdo import run as run_isdo_circuit
 from .base import InterferenceBackend
 
 
 class TransitionBackend(InterferenceBackend):
     """
-    CORRECT physical Hadamard-test using transition unitary.
+    Physically realizable ISDO implementation using shared optimized ISDO circuits.
     
-    This is the physically realizable ISDO implementation.
-    Computes Re⟨chi | psi⟩ using U_chi_psi = U_chi @ U_psi^dagger
-    
-    This should be used for all hardware experiments and claims.
+    This backend uses the hardware-optimized Householder reflections and 
+    high-precision float64 logic from the ISDO module.
     """
     
-    @staticmethod
-    def _statevector_to_unitary(vec):
-        """Build unitary that prepares vec from |0...0⟩"""
-        vec = np.asarray(vec, dtype=np.complex128)
-        vec = vec / np.linalg.norm(vec)
-        dim = len(vec)
-        
-        U = np.zeros((dim, dim), dtype=complex)
-        U[:, 0] = vec
-        
-        # Gram-Schmidt to complete the unitary
-        for i in range(1, dim):
-            v = np.zeros(dim, dtype=complex)
-            v[i] = 1.0
-            
-            for j in range(i):
-                v -= np.vdot(U[:, j], v) * U[:, j]
-            
-            v_norm = np.linalg.norm(v)
-            if v_norm > 1e-10:
-                U[:, i] = v / v_norm
-            else:
-                v = np.random.randn(dim) + 1j * np.random.randn(dim)
-                for j in range(i):
-                    v -= np.vdot(U[:, j], v) * U[:, j]
-                U[:, i] = v / np.linalg.norm(v)
-        
-        return U
-    
-    @staticmethod
-    def _build_transition_unitary(psi, chi):
-        """Build U_chi_psi = U_chi @ U_psi^dagger"""
-        U_psi = TransitionBackend._statevector_to_unitary(psi)
-        U_chi = TransitionBackend._statevector_to_unitary(chi)
-        
-        # Transition unitary
-        U_chi_psi = U_chi @ U_psi.conj().T
-        
-        return UnitaryGate(U_chi_psi)
-    
     def score(self, chi, psi) -> float:
-        chi = np.asarray(chi, dtype=np.complex128)
-        psi = np.asarray(psi, dtype=np.complex128)
-        
-        # Normalize
-        chi = chi / np.linalg.norm(chi)
-        psi = psi / np.linalg.norm(psi)
-        
-        assert chi.shape == psi.shape
-        n = int(np.log2(len(psi)))
-        assert 2**n == len(psi)
-        
-        qc = QuantumCircuit(1 + n)
-        anc = 0
-        data = list(range(1, 1 + n))
-        
-        # Prepare |psi⟩ on data qubits
-        qc.append(StatePreparation(psi), data)
-        
-        # Hadamard on ancilla
-        qc.h(anc)
-        
-        # Controlled transition unitary
-        U_chi_psi = self._build_transition_unitary(psi, chi)
-        qc.append(U_chi_psi.control(1), [anc] + data)
-        
-        # Final Hadamard
-        qc.h(anc)
-        
-        # Get statevector and measure Z on ancilla
-        sv = Statevector.from_instruction(qc)
-        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
-        
-        return float(z_exp)
+        """
+        Calculates the interference score using the optimized ISDO quantum circuit.
+        """
+        # Call the shared ISDO routine
+        return float(run_isdo_circuit(psi, chi))
 ```
 
 ## File: src/IQC/interference/exact_backend.py
@@ -3969,6 +4072,358 @@ class Regime3AClassifier:
 
 ```
 
+## File: research_docs/comparison_report.md
+
+```md
+# Literature Comparison Report: Measurement-Free Quantum Classifier
+
+This report compares the proposed **Measurement-Free Quantum Classifier** (MFQC) project with the provided literature set (Bucket A, Bucket B, and Scholar Review).
+
+## 1. Technical Innovation: The SWAP-Test Advantage
+Most quantum classifiers in current literature (e.g., **Singh 2024** in Bucket A, **VQFE** in Bucket B) rely on:
+- **Variational circuits** that require intermediate measurements for gradient estimation (Parameter-Shift Rule).
+- **Fidelity estimation** that involves multiple shots to reconstruct matrix elements.
+
+**The MFQC Project** innovates by using a **SWAP-test** protocol. This allows for a **measurement-free** classification process where:
+- Quantum coherence is preserved until the final readout bit.
+- Only a single ancilla qubit is measured at the very end to determine the fidelity (similarity) between the test image and the class prototypes.
+- This directly addresses the research gap identified in **Radhi et al. (2025)**.
+
+## 2. Encoding and Dimension Reduction
+Standard quantum image processing papers often struggle with the "curse of dimensionality":
+- **Literature (Bucket A)**: Evaluates FRQI/NEQR which require a qubit or gate per pixel, making them impractical for 96x96 medical images.
+- **MFQC Approach**: Uses a **Hybrid CNN backbone**. The classical CNN extracts high-level features (16-32D), which are then encoded using **Amplitude Encoding** into only 4-5 qubits. This hybrid approach is supported by **Springer Nature (2023)** as the most viable NISQ-era path.
+
+## 3. NISQ Hardware Feasibility
+- **Literature (Scholar Review)**: Highlights that decoherence and noise limit circuit depth to <150 gates for meaningful results.
+- **MFQC Approach**: Specifically targets a **shallow circuit design (50-100 gates)**. By avoiding intermediate measurements, it reduces the accumulation of shot noise and readout error, which are major bottlenecks discussed in **MDPI (2024)**.
+
+## 4. Performance against Baselines
+| Metric | Literature Average (Standard VQC) | MFQC Proposed Target |
+| :--- | :--- | :--- |
+| **Circuit Depth** | 150-500+ gates | 50-100 gates |
+| **Qubit Count** | High (for raw pixels) | 4-5 (for amplitude features) |
+| **Accuracy (Medical)**| 85-90% | **92%** |
+| **Coherence** | Interrupted by measurements | **Preserved until final readout** |
+
+## Summary of Gap Filling
+The MFQC project sits at the intersection of **Hybrid Machine Learning** (Scholar Review) and **Quantum State Comparison** (Bucket B). It moves beyond the "survey phase" (Radhi 2025) into a practical implementation that leverages the efficiency of the SWAP-test to achieve medical-grade classification without the overhead of measurement-based variational loops.
+
+```
+
+## File: research_docs/implementation_plan.md
+
+```md
+# Research Analysis and Literature Comparison Plan
+
+This plan outlines the steps to compare the proposed **Measurement-Free Quantum Classifier** project with the provided literature set (Bucket A, Bucket B, and Scholar Review).
+
+## Goals
+1.  **Literature Mapping**: Categorize the provided reference papers based on their focus (encoding, architecture, fidelity estimation, hardware constraints).
+2.  **Gap Analysis**: Verify the "Research Gaps" identified in the project PPT against the actual literature.
+3.  **Innovation Validation**: Compare the SWAP-test based measurement-free approach with standard VQC/QSVM methods described in the papers.
+4.  **Hardware Assessment**: Evaluate the NISQ-feasibility claims (50-100 gates) against current hardware limitations discussed in the Scholar Review.
+
+## Proposed Steps
+
+### 1. Literature Categorization
+- **Bucket A**: Focus on encoding (Amplitude, FRQI, NEQR) and QNN architectures.
+- **Bucket B**: Focus on Quantum Fidelity, Trace Distance, and state comparison techniques (Variational Fidelity Estimation vs. SWAP-test).
+- **Scholar Review**: Focus on NISQ hardware, hybrid systems, and medical imaging applications.
+
+### 2. Detailed Comparison
+- **SWAP-test vs. Variational Fidelity**: Analyze how the project's SWAP-test (measurement-free) avoids common pitfalls of variational methods (which often require multiple intermediate measurements).
+- **Coherence Preservation**: Evaluate the claim of preservation against papers discussing decoherence in NISQ devices.
+- **Complexity Analysis**: Compare the "shallow circuit" claim with depths reported in the literature for medical classification.
+
+### 3. Synthesis Report
+- Create a comprehensive report (as a new artifact or response) answering:
+    - How the project fills identified gaps.
+    - Technical advantages/limitations.
+    - Alignment with current research trends (Radhi 2025, etc.).
+
+## Verification Plan
+
+### Automated Analysis
+- I will use `pdftotext` to extract abstracts/summaries from key papers to confirm their focus and findings.
+- I will search for "SWAP-test" and "measurement-free" keywords across the literature set to find direct competitors or foundational theories.
+
+### Manual Verification
+- The user should review the synthesized comparison report to ensure it addresses their specific (but unstated) concerns.
+
+```
+
+## File: research_docs/interference_quantum_classifier_iqc_paper_draft_non_claim_leaking.md
+
+```md
+# Interference Quantum Classifier (IQC)
+
+## A Measurement-Efficient Quantum Classification Framework Based on Linear Interference
+
+---
+
+## Abstract
+
+Quantum machine learning classifiers proposed for near-term devices commonly rely on variational circuits or fidelity-based measurements, leading to high measurement cost, loss of phase information, and unstable training dynamics. In this work, we introduce the **Interference Quantum Classifier (IQC)**, a classification framework in which learning is decoupled from quantum execution and inference is performed through a fixed quantum interference circuit. IQC bases its decision rule on a linear interference quantity rather than probability or fidelity, enabling phase-sensitive, sign-preserving classification with constant measurement complexity. We present the theoretical formulation of the interference observable, describe a quantum circuit realization, and demonstrate how class information can be represented and updated as quantum states using classical learning rules. Experiments on real-world image embeddings show that interference-based aggregation improves expressivity while significantly reducing runtime compared to measurement-heavy quantum classifiers. Our results suggest that linear quantum interference provides a practical and interpretable alternative to variational and kernel-based quantum classification on near-term hardware.
+
+---
+
+## 1. Introduction
+
+Quantum machine learning (QML) has attracted significant attention as a potential application of near-term quantum devices. Most existing quantum classifiers fall into two categories: variational quantum classifiers, which train parameterized circuits using measurement-based optimization, and similarity-based classifiers, which estimate quantum state fidelity or kernel values. In practice, both approaches face substantial challenges, including high measurement overhead, sensitivity to noise, and limited interpretability.
+
+A key observation motivating this work is that classification decisions need not depend on quadratic probability estimates. Instead, they can be derived from **linear interference between quantum states**, which preserves directional and phase information that is lost in fidelity-based methods. This observation motivates a rethinking of how quantum classifiers are constructed and how learning is integrated with quantum hardware.
+
+In this paper, we propose the Interference Quantum Classifier (IQC), a framework that separates learning from quantum inference and employs a fixed quantum interference circuit as its decision engine.
+
+---
+
+## 2. Problem Setup and Notation
+
+We consider a supervised binary classification problem. Input samples are first mapped to real-valued feature vectors using a classical encoder. These vectors are normalized and embedded into quantum states. Let |ψ⟩ denote a quantum state corresponding to an input sample, and let |χ⟩ denote a quantum state representing class information.
+
+The goal of classification is to determine a label based on the relationship between |ψ⟩ and |χ⟩.
+
+---
+
+## 3. Linear Interference as a Decision Primitive
+
+### 3.1 Interference Observable
+
+IQC is built around a linear interference quantity given by the real part of the inner product between two quantum states. Unlike fidelity, which depends on the squared magnitude of the inner product, this quantity preserves sign and phase information.
+
+We show that this linear quantity is sufficient to define a stable and interpretable decision rule for classification.
+
+---
+
+### 3.2 Comparison with Fidelity-Based Classification
+
+Fidelity-based classifiers estimate |⟨χ|ψ⟩|², which is invariant under global phase changes and discards sign information. As a result, such classifiers behave like distance measures rather than directional similarity measures.
+
+In contrast, linear interference distinguishes between constructive and destructive overlap, enabling sign-sensitive classification decisions.
+
+---
+
+## 4. Quantum Circuit for Interference-Based Inference
+
+We describe a quantum circuit that evaluates the linear interference quantity using an ancilla-assisted interference procedure. The circuit is fixed and does not contain trainable parameters. Its output is a single expectation value whose sign determines the predicted class label.
+
+Importantly, the circuit depth and measurement cost are independent of dataset size.
+
+---
+
+## 5. Learning via Quantum State Representation
+
+Rather than training quantum gate parameters, IQC represents learned class information as quantum states. Learning is performed by updating these state representations using classical rules, while the quantum circuit remains unchanged.
+
+This separation avoids common training pathologies encountered in variational quantum algorithms and enables incremental learning.
+
+---
+
+## 6. Learning Regimes
+
+We outline several learning regimes supported by the IQC framework, including:
+
+- static construction of class states from training data,
+- online updates using sequential samples,
+- use of multiple class states to increase expressivity.
+
+These regimes differ in how class information is represented but share the same interference-based inference mechanism.
+
+---
+
+## 7. Experimental Evaluation
+
+We evaluate IQC on real-world image embeddings generated by a convolutional neural network. We compare interference-based classification against classical baselines and measurement-heavy quantum similarity methods.
+
+Our experiments demonstrate that removing measurement noise alone does not significantly improve performance, whereas interference-based aggregation improves classification accuracy while reducing runtime by orders of magnitude.
+
+---
+
+## 8. Discussion
+
+The IQC framework highlights a different role for quantum circuits in machine learning: rather than serving as trainable models, they act as fixed physical operators that evaluate structured similarity measures. This perspective offers advantages in stability, interpretability, and hardware compatibility.
+
+We discuss limitations of the current approach and potential extensions, including richer quantum memory structures and alternative interference semantics.
+
+---
+
+## 9. Conclusion
+
+We have presented the Interference Quantum Classifier, a quantum classification framework based on linear quantum interference and a clear separation between learning and inference. By avoiding variational training and fidelity estimation, IQC provides a practical path toward measurement-efficient quantum classification on near-term devices. Our results suggest that linear interference is a powerful and underexplored primitive for quantum machine learning.
+
+---
+
+## Acknowledgements
+
+[To be added]
+
+```
+
+## File: research_docs/Fidelity_and_Measurement_Free_Methods_Comparison.md
+
+```md
+# Comparative Analysis: Fidelity-Based & Measurement-Free Quantum Classification
+
+This report provides a formal technical review of quantum classification methods found in the project's literature repository (`Documents/`). It emphasizes **Measurement-Free (MF)** architectures and **Low-Shot** similarity algorithms.
+
+---
+
+## 1. Coherent Feedback Learning (The Absolute MF Baseline)
+**Reference**: [Alvarez-Rodriguez et al. (2017)](file:///home/tarakesh/Work/Repo/measurement-free-quantum-classifier/Documents/refference_papers/Scholar%20review/quantum%20fidelity/s41598-017-13378-0.pdf)
+
+*   **Mechanism**: Encodes the classification logic into a time-delayed Schrödinger equation.
+*   **Shot Efficiency**: **Zero mid-circuit shots**. The system evolves unitarily toward the correct label.
+*   **Equation**: 
+    $$\frac{d}{dt} |\psi(t)\rangle = -i \left[ \kappa_1 H_int + \kappa_2 H_{feedback} \right] |\psi(t)\rangle$$
+
+---
+
+## 2. Coherent Amplitude/Phase Estimation (The Bit-by-Bit Approach)
+**Reference**: [Patrick Rall (2021)](file:///home/tarakesh/Work/Repo/measurement-free-quantum-classifier/Documents/refference_papers/Scholar%20review/minimm%20measurement%20quant%20algo/q-2021-10-19-566.pdf)
+
+*   **Mechanism**: Uses **Singular Value Transformation (SVT)** to estimate similarity one bit at a time.
+*   **Shot Efficiency**: Achieves **Heisenberg-limited** accuracy ($\Theta(1/\epsilon)$ queries). 
+*   **Advantage**: Does not require the Quantum Fourier Transform (QFT), making it much more robust for NISQ devices.
+*   **Expression**: 
+$$
+|0\rangle |\psi\rangle -> |\text{overlap}\rangle |\psi\rangle
+$$
+    This "writes" the fidelity into a register without collapsing the original superposition.
+
+---
+
+## 3. Classical Shadows (Shadow Classification)
+**Reference**: [Huang et al. (2020) & Yunfei Wang (2024)](file:///home/tarakesh/Work/Repo/measurement-free-quantum-classifier/Documents/refference_papers/Scholar%20review/NISQ%20hardwere/2401.11351v2.pdf)
+
+*   **Mechanism**: Performs randomized Pauli measurements to create a "shadow" of the quantum state.
+*   **Shot Efficiency**: Allows tracking **logarithmic** shots relative to the number of samples. Once a shadow is created, you can compute INFINITE fidelities classically.
+*   **Equation**: 
+    $$\hat{\rho} = \mathbb{E}[ \mathcal{M}^{-1}(U^\dagger |b\rangle\langle b| U) ]$$
+    Where $\hat{\rho}$ is the reconstructed "shadow" that contains the fidelity information.
+
+---
+
+## 4. Destructive SWAP-Test (Ancilla-Free)
+**Reference**: [Garcia-Escartin (2013) & Blank (2020)](file:///home/tarakesh/Work/Repo/measurement-free-quantum-classifier/Documents/refference_papers/Scholar%20review/quantum%20fidelity/s41534-020-0272-6.pdf)
+
+*   **Mechanism**: Removes the ancilla qubit entirely. Uses CNOTs followed by single-qubit measurements on both registers.
+*   **Shot Efficiency**: Far more efficient for hardware with limited connectivity. 
+*   **Equation**: 
+    Considers the parity of the measurement outcomes $b_1, b_2$:
+    $$F = 1 - 2 \cdot P(\text{parity yields odd})$$
+
+---
+
+## 5. Comparative Shot-Efficiency Table
+
+| Method | Shots Required | Measurement-Free? | Best Use Case |
+| :--- | :--- | :--- | :--- |
+| **Standard SWAP** | $O(1/\epsilon^2)$ | No | General Purpose |
+| **Coherent SVT** | $\Theta(1/\epsilon)$ | **Yes** | High Precision / Coherent Chains |
+| **Classical Shadows** | $\log(M)$ | Partial | Multi-class (Benign, Malignant, Cyst) |
+| **Destructive SWAP** | Medium | No | Low-Qubit Count Chips |
+| **VQFE** | High (Training) | No | Parameter Tuning |
+
+---
+### Project Conclusion
+While the "Big 3" get most of the attention in textbooks, recent 2021-2024 research (like **Patrick Rall's SVT**) proves that we can achieve **classification without measurement collapse**. In our project, we use the **Interference Average (Phase B)** as a bridge: it uses the parallel nature of the SWAP-test to reduce the "effective" shots compared to testing prototypes one-by-one.
+
+```
+
+## File: research_docs/research_answers.md
+
+```md
+# Research Q&A: Measurement-Free Quantum Classification
+
+Below are the detailed answers to your questions based on the provided literature set and your project idea.
+
+### 1. How do existing quantum classifiers perform measurement during inference and training?
+*   **Training**: Most existing models (Variational Quantum Circuits - VQCs) use the **Parameter-Shift Rule**. This requires executing the circuit multiple times (shots) with shifted parameter values to estimate gradients classically. Each "step" involves thousands of measurements.
+*   **Inference**: Typically involves **State Readout**. The circuit is executed thousands of times, and the ancilla qubit (or a register) is measured. The probability of measuring $|1\rangle$ vs $|0\rangle$ is used to determine the class label.
+
+### 2. What are the limitations of measurement-based quantum machine learning on NISQ hardware?
+*   **Shot Noise**: The need for high precision in probability estimation requires a massive number of "shots," increasing latency.
+*   **Readout Error**: State-of-the-art NISQ devices have significant errors during the measurement process itself, which accumulate if multiple intermediate measurements are used.
+*   **Decoherence**: Long sequences of measurements and classical loops (as in variational methods) prolong the time the quantum state must remain coherent, leading to gate errors.
+
+### 3. How is quantum fidelity estimated in quantum machine learning classifiers?
+*   **SWAP-Test**: A standard protocol where an ancilla qubit interacts with two quantum states. The probability of the ancilla being $|0\rangle$ is $(1 + F)/2$, where $F$ is the fidelity.
+*   **Variational Fidelity Estimation (VQFE)**: Uses a parameterized circuit to diagonalize one state and compute its overlap with another (**Bucket B: Cerezo et al. 2020**).
+*   **Trace Distance Bounds**: Using hybrid algorithms to compute upper and lower bounds on similarity rather than a single point estimate.
+
+### 4. Are there quantum classifiers that use fidelity without explicit fidelity estimation?
+*   Yes, **Quantum Kernel Methods** (e.g., QSVM) use fidelity implicitly. The circuit $U(\mathbf{x})^\dagger U(\mathbf{y})$ maps the similarity to the vacuum state $|0\rangle^{\otimes n}$. While the "fidelity" value is the goal, the algorithm often just needs to know if the transition is high enough for a kernel matrix, without necessarily "reporting" the fidelity to a classical observer at every layer.
+
+### 5. What measurement-free or measurement-minimal quantum algorithms exist?
+*   **Coherent Phase Estimation**: Algorithms that perform phase estimation without intermediate measurements to preserve superposition (**Patel et al. 2024**).
+*   **Interference-based Distance Classifiers**: Using the SWAP-test logic as the core of the classifier (like your project), which avoids collapsing the state until the final diagnostic decision.
+
+### 6. Have measurement-free quantum algorithms been applied to medical image classification?
+*   There is a significant **research gap** here. While hybrid QCNNs (**Li et al. 2025**) use quantum layers for medical images, they typically use variational (measurement-based) updates. Your project's focus on a "pure" measurement-free end-to-end classification for metastatic tissue is highly novel.
+
+### 7. What hybrid quantum–classical approaches are used for medical image classification?
+*   **Feature Extraction + VQC**: A classical CNN (EfficientNet, ResNet) extracts 1024D features, reduced via PCA/Autoencoders to 8-16D, then fed into a Variational Quantum Circuit (**Scholar Review: Singh 2024**).
+*   **Quanvolutional Neural Networks**: Classical convolution filters are replaced by small quantum circuits that transform pixel patches before traditional CNN processing.
+
+### 8. What open research gaps exist in measurement-free quantum machine learning for classification tasks?
+*   **Trainability**: How to optimize "prototypes" (class representatives) in a purely measurement-free setting without falling into barren plateaus.
+*   **Hardware Robustness**: Empirical validation of whether avoiding measurement actually results in higher accuracy on noisy IBM/IonQ hardware.
+*   **Large-Scale Benchmarking**: Most studies use toy datasets (MNIST); applying these to 96x96 medical images (like PatchCamelyon) is an active frontier.
+
+```
+
+## File: research_docs/project_blueprint.md
+
+```md
+# Accelerated Research Project Blueprint (8-Week Roadmap)
+
+This revised plan compresses the research into a high-intensity **8-week cycle**, focusing on the critical implementation of the measurement-free quantum classifier.
+
+---
+
+## Part 1: Foundation & Architecture (Weeks 1-2)
+**Goal**: Rapid setup and interface design.
+- **Week 1: Infrastructure & Data**: 
+    - Configure Qiskit/PyTorch environment.
+    - Set up a **subset** data loader for PathCamelyon (to speed up iteration).
+    - Implement a pre-trained CNN feature extractor (e.g., ResNet18) instead of training from scratch.
+- **Week 2: Quantum-Classical Interface**: 
+    - Implement Amplitude Encoding for 8D/16D features.
+    - Prototype the SWAP-test circuit and verify basic state overlap logic.
+
+## Part 2: Implementation & Hybrid Training (Weeks 3-5)
+**Goal**: Build the core and optimize prototypes.
+- **Week 3: Circuit Optimization**: 
+    - Minimize gate depth for NISQ feasibility (target <50 gates if possible).
+    - Implement noisy simulation environment.
+- **Week 4-5: Joint Optimization**: 
+    - Execute hybrid training loops using the Parameter-Shift rule.
+    - Focus on optimizing class prototypes to maximize inter-class fidelity distance.
+    - Monitor for training stability in a shorter epoch window.
+
+## Part 3: Validation & Reporting (Weeks 6-8)
+**Goal**: Prove innovation and finalize documentation.
+- **Week 6: Performance Evaluation**: 
+    - Calculate Accuracy, F1-Score, and AUC-ROC on the test set.
+    - Run primary comparison against a standard VQC baseline.
+- **Week 7: Robustness & Noise Study**: 
+    - Test the measurement-free advantage by simulating hardware noise.
+    - Conduct a single hardware run (IBM Quantum) if possible.
+- **Week 8: Final Synthesis**: 
+    - Finalize the technical report/manuscript.
+    - Prepare visualizations and code documentation for handover.
+
+---
+
+## Streamlining Strategy
+- **Pre-trained Backbones**: Use pre-trained weights to skip weeks of classical training.
+- **Sub-sampling**: Use a balanced subset of PatchCamelyon for training to reduce compute time.
+- **Parallelization**: Design circuits while the data pipeline is being finalized.
+- **Focus**: Prioritize "Proof of Concept" over "Scale" to meet the 8-week deadline.
+
+```
+
 ## File: results/embeddings/class_states_meta.json
 
 ```json
@@ -3998,7 +4453,12 @@ class Regime3AClassifier:
     0.1406550945730487,
     0.13497550318106732,
     0.11610426991182976,
-    0.11148261162816198
+    0.11148261162816198,
+    0.10862913947039488,
+    0.09541817462331892,
+    0.09339981933680974,
+    0.0910517916313438,
+    0.08256717906601807
   ],
   "train_acc": [
     0.8622550964355469,
@@ -4011,7 +4471,12 @@ class Regime3AClassifier:
     0.9482002258300781,
     0.9505386352539062,
     0.9581375122070312,
-    0.9599342346191406
+    0.9599342346191406,
+    0.9608840942382812,
+    0.9665145874023438,
+    0.9672470092773438,
+    0.9680290222167969,
+    0.9713249206542969
   ],
   "val_loss": [
     0.7608505549724214,
@@ -4024,7 +4489,12 @@ class Regime3AClassifier:
     0.36998813936224906,
     0.7853999140152155,
     0.3571328424004605,
-    0.31231515117542585
+    0.31231515117542585,
+    0.4606642867165647,
+    0.507413076415105,
+    0.45235701354249613,
+    0.6111933563879575,
+    0.3889162304039928
   ],
   "val_acc": [
     0.689483642578125,
@@ -4037,7 +4507,12 @@ class Regime3AClassifier:
     0.866363525390625,
     0.789154052734375,
     0.87628173828125,
-    0.884002685546875
+    0.884002685546875,
+    0.84228515625,
+    0.84930419921875,
+    0.854217529296875,
+    0.807952880859375,
+    0.875701904296875
   ]
 }
 ```
@@ -4047,16 +4522,16 @@ class Regime3AClassifier:
 ```json
 {
   "LogisticRegression": {
-    "accuracy": 0.9086666666666666,
-    "auc": 0.9706703413940256
+    "accuracy": 0.9046666666666666,
+    "auc": 0.9664224751066857
   },
   "LinearSVM": {
-    "accuracy": 0.912,
+    "accuracy": 0.9053333333333333,
     "auc": null
   },
   "kNN": {
     "accuracy": 0.926,
-    "auc": 0.9690398293029872
+    "auc": 0.9711219772403983
   }
 }
 ```

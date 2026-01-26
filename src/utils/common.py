@@ -34,17 +34,25 @@ def statevector_to_unitary(psi):
     e1 = np.zeros(dim, dtype=np.complex128)
     e1[0] = 1.0
     
-    # Adjust phase to avoid numerical instability
-    phase = np.exp(1j * np.angle(psi[0])) if np.abs(psi[0]) > 1e-10 else np.complex128(1.0)
+    # Adjust phase to avoid numerical instability (choose phase to make w large)
+    # We want to map phase * e1 to psi where phase has same angle as psi[0]
+    # This ensures w = phase * e1 - psi is stable.
+    angle = np.angle(psi[0]) if np.abs(psi[0]) > 1e-10 else 0.0
+    phase = np.exp(1j * angle)
+    
     target = phase * e1
     w = target - psi
     w_norm = np.linalg.norm(w)
     
     if w_norm < 1e-12:
-        return np.eye(dim, dtype=np.complex128) * phase.conj()
+        # psi is already phase * e1, so just return identity * phase
+        return np.eye(dim, dtype=np.complex128) * phase
     
     v = w / w_norm
-    H = (np.eye(dim, dtype=np.complex128) - 2.0 * np.outer(v, v.conj())) * phase.conj()
+    # R = I - 2vv* maps target (phase * e1) to psi
+    # R * phase * e1 = psi  => R * e1 = psi * phase*
+    # To get U * e1 = psi, we need U = R * phase
+    H = (np.eye(dim, dtype=np.complex128) - 2.0 * np.outer(v, v.conj())) * phase
     return H
 
 
