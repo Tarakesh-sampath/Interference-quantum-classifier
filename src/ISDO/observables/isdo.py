@@ -2,7 +2,7 @@
 import numpy as np
 from src.ISDO.circuits.transition_isdo import run as run_isdo_circuit
 
-def isdo_observable(chi, psi, real=False) -> float:
+def isdo_observable(chi, psi, real=True) -> float:
     """
     ISDO observable:
     Linear interference score Re⟨χ|ψ⟩

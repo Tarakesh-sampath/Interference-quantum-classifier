@@ -19,34 +19,45 @@ def load_statevector(vec):
 
 def statevector_to_unitary(psi):
     """
-    Convert a statevector to a unitary operator using Householder efficiency.
-    Construct a Householder reflection U such that U |e1> = |psi>
-    where e1 = [1, 0, ..., 0]^T.
+    Convert a statevector to a unitary operator that creates it from |0...0⟩
+    Uses Gram-Schmidt to complete the unitary matrix.
     
-    This is O(D^2) to build the matrix, compared to O(D^3) for Gram-Schmidt.
+    This creates U_psi such that U_psi |0...0⟩ = |psi⟩
+    
+    Used for building transition unitaries in Circuit B'.
     """
     psi = np.asarray(psi, dtype=np.complex128)
-    norm = np.linalg.norm(psi)
-    if norm > 1e-15:
-        psi = psi / norm
-    
     dim = len(psi)
-    e1 = np.zeros(dim, dtype=np.complex128)
-    e1[0] = 1.0
     
-    # Adjust phase to avoid numerical instability
-    phase = np.exp(1j * np.angle(psi[0])) if np.abs(psi[0]) > 1e-10 else np.complex128(1.0)
-    target = phase * e1
-    w = target - psi
-    w_norm = np.linalg.norm(w)
+    # Normalize
+    psi = psi / np.linalg.norm(psi)
     
-    if w_norm < 1e-12:
-        return np.eye(dim, dtype=np.complex128) * phase.conj()
+    # Create unitary matrix where first column is psi
+    U = np.zeros((dim, dim), dtype=complex)
+    U[:, 0] = psi
     
-    v = w / w_norm
-    H = (np.eye(dim, dtype=np.complex128) - 2.0 * np.outer(v, v.conj())) * phase.conj()
-    return H
-
+    # Complete to full unitary using Gram-Schmidt orthogonalization
+    for i in range(1, dim):
+        # Start with standard basis vector
+        v = np.zeros(dim, dtype=complex)
+        v[i] = 1.0
+        
+        # Orthogonalize against all previous columns
+        for j in range(i):
+            v -= np.vdot(U[:, j], v) * U[:, j]
+        
+        # Normalize and store
+        v_norm = np.linalg.norm(v)
+        if v_norm > 1e-10:
+            U[:, i] = v / v_norm
+        else:
+            # Use random vector if degenerate
+            v = np.random.randn(dim) + 1j * np.random.randn(dim)
+            for j in range(i):
+                v -= np.vdot(U[:, j], v) * U[:, j]
+            U[:, i] = v / np.linalg.norm(v)
+    
+    return U
 
 
 def build_transition_unitary(psi, chi):
