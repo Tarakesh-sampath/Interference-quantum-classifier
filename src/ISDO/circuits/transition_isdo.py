@@ -56,7 +56,7 @@ def run(psi, chi):
     """
     # Inputs are assumed normalized at this stage
     qc = build(psi, chi)
-    qc.draw(output='mpl', filename='transition_isdo.png')
+    #qc.draw(output='mpl', filename='transition_isdo.png')
     qc_no_meas = qc.remove_final_measurements(inplace=False)
     sv = Statevector.from_instruction(qc_no_meas)
     z_exp = sv.expectation_value(Pauli('Z'), [0]).real
