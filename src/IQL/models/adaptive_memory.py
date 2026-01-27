@@ -57,7 +57,7 @@ class AdaptiveMemory:
                 # 🔥 spawn new memory
                 chi_new = y * psi
                 chi_new = chi_new / np.linalg.norm(chi_new)
-                self.memory_bank.add_memory(chi_new)
+                self.memory_bank.add_memory(chi_new, self.backend)
                 self.num_spawns += 1
                 spawned = True
 

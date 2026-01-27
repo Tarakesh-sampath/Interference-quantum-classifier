@@ -1,13 +1,12 @@
 from src.IQL.learning.class_state import ClassState
 
 class MemoryBank:
-    def __init__(self, class_states, backend):
+    def __init__(self, class_states):
         self.class_states = class_states
-        self.backend = backend
 
     def scores(self, psi):
         return [
-            self.backend.score(cs.vector, psi)
+            cs.score(psi)
             for cs in self.class_states
         ]
 
@@ -17,5 +16,5 @@ class MemoryBank:
         #idx = int(max(range(len(scores)), key=lambda i: scores[i])) ## causes lower score ??
         return idx, scores[idx]
 
-    def add_memory(self, chi_vector):
-        self.class_states.append(ClassState(chi_vector))
+    def add_memory(self, chi_vector, backend):
+        self.class_states.append(ClassState(chi_vector, backend=backend))

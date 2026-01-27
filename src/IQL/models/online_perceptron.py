@@ -1,6 +1,5 @@
 import numpy as np
 from src.IQL.learning.update import update
-from src.IQL.backends.base import InterferenceBackend
 import pickle
 
 class OnlinePerceptron:
@@ -11,10 +10,9 @@ class OnlinePerceptron:
     Trainable object: |chi>
     """
 
-    def __init__(self, class_state, eta: float, backend: InterferenceBackend):
+    def __init__(self, class_state, eta: float):
         self.class_state = class_state
         self.eta = eta
-        self.backend = backend
         # logs
         self.num_updates = 0
         self.history = {
@@ -32,7 +30,7 @@ class OnlinePerceptron:
         y_hat = 1 if s >= 0 else -1
 
         chi_new, updated = update(
-            self.class_state.vector, psi, y, self.eta, self.backend
+            self.class_state.vector, psi, y, self.eta, self.class_state.backend
         )
 
         if updated:
@@ -77,7 +75,7 @@ class OnlinePerceptron:
             "eta": self.eta,
             "num_updates": self.num_updates,
             "history": self.history,
-            "backend": self.backend,
+            "backend": self.class_state.backend,
         }
 
         with open(path, "wb") as f:
@@ -94,7 +92,6 @@ class OnlinePerceptron:
         obj = cls(
             class_state=payload["class_state"],
             eta=payload["eta"],
-            backend=payload["backend"],
         )
 
         # restore training statistics

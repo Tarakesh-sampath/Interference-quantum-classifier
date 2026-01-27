@@ -23,7 +23,7 @@ def test_consistency():
     assert np.isclose(score, 1.0)
     
     # 3. MemoryBank
-    mb = MemoryBank([cs], backend)
+    mb = MemoryBank([cs])
     print("MemoryBank initialized.")
     scores = mb.scores(psi)
     print(f"MemoryBank scores: {scores}")
@@ -31,7 +31,7 @@ def test_consistency():
     
     # 4. Models
     # OnlinePerceptron
-    op = OnlinePerceptron(cs, eta=0.1, backend=backend)
+    op = OnlinePerceptron(cs, eta=0.1)
     y_hat, s, updated = op.step(psi, 1)
     print(f"OnlinePerceptron step: y_hat={y_hat}, s={s}, updated={updated}")
     

@@ -1,5 +1,5 @@
 import numpy as np
-from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.base import InterferenceBackend
 
 
 def update(
@@ -7,7 +7,7 @@ def update(
     psi: np.ndarray,
     y: int,
     eta: float,
-    backend: ExactBackend,
+    backend: InterferenceBackend,
 ):
     """
     Regime-2 update rule (quantum perceptron):

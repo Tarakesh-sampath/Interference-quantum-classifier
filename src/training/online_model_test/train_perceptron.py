@@ -1,10 +1,10 @@
 import numpy as np
 import os
 
-from src.IQL.states.class_state import ClassState
+from src.IQL.learning.class_state import ClassState
 from src.IQL.encoding.embedding_to_state import embedding_to_state
 from src.IQL.models.online_perceptron import OnlinePerceptron
-from src.IQL.models.metrics import summarize_training
+from src.IQL.learning.metrics import summarize_training
 from src.IQL.backends.exact import ExactBackend
 from src.utils.paths import load_paths
 from src.utils.seed import set_seed
@@ -42,8 +42,8 @@ def main():
         chi0 += label * psi
     chi0 = chi0 / np.linalg.norm(chi0)
 
-    class_state = ClassState(chi0)
-    trainer = OnlinePerceptron(class_state, eta=0.1, backend=ExactBackend())
+    class_state = ClassState(chi0,backend=ExactBackend())
+    trainer = OnlinePerceptron(class_state, eta=0.1)
 
     acc = trainer.fit(X_train,y_train)
     stats = summarize_training(trainer.history)

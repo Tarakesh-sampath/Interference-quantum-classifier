@@ -2,7 +2,7 @@ import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from src.ISDO.baselines.static_isdo_classifier  import StaticISDOClassifier
+from src.IQL.baselines.static_isdo_classifier  import StaticISDOClassifier
 from src.utils.paths import load_paths
 
 BASE_ROOT, PATHS = load_paths()

@@ -8,7 +8,7 @@ from src.utils.seed import set_seed
 from src.IQL.learning.class_state import ClassState
 from src.IQL.encoding.embedding_to_state import embedding_to_state
 from src.IQL.learning.memory_bank import MemoryBank
-from src.IQL.backends.transition import TransitionBackend
+from src.IQL.backends.exact import ExactBackend
 
 from src.IQL.models.adaptive_memory import AdaptiveMemory
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
@@ -49,17 +49,18 @@ print("Loaded train embeddings:", X_train.shape)
 # -------------------------------------------------
 d = X_train[0].shape[0]
 
+backend = ExactBackend()
+
 class_states = []
 for _ in range(3):
     v = np.random.randn(d)
     v /= np.linalg.norm(v)
-    class_states.append(ClassState(v))
+    class_states.append(ClassState(v,backend=backend))
 
-backend = TransitionBackend()
+
 
 memory_bank = MemoryBank(
-    class_states=class_states,
-    backend=backend
+    class_states=class_states
 )
 
 print("Initial number of memories:", len(memory_bank.class_states))
