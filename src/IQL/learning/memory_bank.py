@@ -18,3 +18,8 @@ class MemoryBank:
 
     def add_memory(self, chi_vector, backend):
         self.class_states.append(ClassState(chi_vector, backend=backend))
+
+    def remove(self, idx):
+        """Remove memory at index idx."""
+        if 0 <= idx < len(self.class_states):
+            del self.class_states[idx]

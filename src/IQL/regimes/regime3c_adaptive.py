@@ -62,7 +62,7 @@ class AdaptiveMemory:
                 spawned = True
 
         # otherwise, normal Regime-2 update on winner
-        if not spawned and margin < 0:
+        if not spawned:
             idx, _ = self.memory_bank.winner(psi)
             cs = self.memory_bank.class_states[idx]
 
