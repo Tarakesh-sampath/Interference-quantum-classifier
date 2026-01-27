@@ -8,7 +8,7 @@ from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
 from src.IQL.backends.exact import ExactBackend
 from src.IQL.learning.calculate_prototype import generate_prototypes
 from src.utils.paths import load_paths
-from src.utils.label_utils import ensure_polar
+from src.utils.label_utils import ensure_polar, ensure_binary
 
 import os
 
@@ -46,9 +46,10 @@ class AdaptiveIQC:
         _, PATHS = load_paths()
         proto_dir = os.path.join(PATHS["class_prototypes"], f"K{self.K_init}")
 
+        y_binary = ensure_binary(y)
         generate_prototypes(
             X=X,
-            y=y,
+            y=y_binary,
             K=self.K_init,
             output_dir=proto_dir,
             seed =42,
@@ -104,4 +105,4 @@ class AdaptiveIQC:
     def predict(self, X):
         if self.classifier is None:
             raise RuntimeError("Model not trained.")
-        return self.classifier.predict(X)
+        return [self.classifier.predict(x) for x in X]
