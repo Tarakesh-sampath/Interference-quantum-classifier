@@ -1,0 +1,9 @@
+{
+  "IQC_Exact": 0.5066666666666667,
+  "IQC_Transition": 0.5066666666666667,
+  "ISDO_K": 0.8806666666666667,
+  "Fidelity_SWAP": 0.8784,
+  "LogisticRegression": 0.9046666666666666,
+  "LinearSVM": 0.9053333333333333,
+  "kNN": 0.926
+}
