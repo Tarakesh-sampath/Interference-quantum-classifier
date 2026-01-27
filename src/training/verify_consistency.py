@@ -2,9 +2,9 @@ import numpy as np
 from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.backends.exact import ExactBackend
-from src.IQL.models.online_perceptron import OnlinePerceptron
-from src.IQL.models.winner_take_all import WinnerTakeAll
-from src.IQL.models.adaptive_memory import AdaptiveMemory
+from src.IQL.regimes.regime2_online import OnlinePerceptron
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
 
 def test_consistency():
     print("Running consistency tests...")

@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 
 from src.utils.paths import load_paths
-from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
+from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
 from src.IQL.training.online_perceptron_trainer import OnlinePerceptronTrainer
 from src.IQL.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
 from src.IQL.states.class_state import ClassState

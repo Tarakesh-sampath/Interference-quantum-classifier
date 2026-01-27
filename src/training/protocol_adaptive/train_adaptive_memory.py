@@ -10,7 +10,7 @@ from src.IQL.encoding.embedding_to_state import embedding_to_state
 from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.backends.exact import ExactBackend
 
-from src.IQL.models.adaptive_memory import AdaptiveMemory
+from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
 import pickle
 

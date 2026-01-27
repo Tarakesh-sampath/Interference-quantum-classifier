@@ -10,11 +10,6 @@ measurement-free-quantum-classifier/
         __init__.py
         IQL/
             __init__.py
-            models/
-                winner_take_all.py
-                adaptive_memory.py
-                online_perceptron.py
-                __init__.py
             learning/
                 class_state.py
                 update.py
@@ -24,9 +19,15 @@ measurement-free-quantum-classifier/
                 __init__.py
             backends/
                 base.py
+                prime_b.py
                 hadamard.py
                 transition.py
                 exact.py
+                __init__.py
+            regimes/
+                regime3c_adaptive.py
+                regime3a_wta.py
+                regime2_online.py
                 __init__.py
             inference/
                 weighted_vote_classifier.py
@@ -55,12 +56,9 @@ measurement-free-quantum-classifier/
             compare_best_iqc_vs_classical.py
             validate_backends.py
             compare_iqc_algorithms.py
-            Adaptive_model_test/
-                consolidate_memory.py
-                train_adaptive_memory.py
-            online_model_test/
+            protocol_online/
                 train_perceptron.py
-            Static_test/
+            protocol_static/
                 evaluate_isdo_k_sweep.py
                 evaluate_static_isdo.py
             classical/
@@ -71,6 +69,9 @@ measurement-free-quantum-classifier/
                 train_cnn.py
                 verify_embbeings.py
                 visualize_pcam.py
+            protocol_adaptive/
+                consolidate_memory.py
+                train_adaptive_memory.py
         classical/
             cnn.py
             __init__.py
@@ -338,365 +339,6 @@ class_count:
 
 ```
 
-## File: src/IQL/models/winner_take_all.py
-
-```py
-from src.IQL.learning.update import update
-from src.IQL.backends.exact import ExactBackend
-import pickle
-
-class WinnerTakeAll:
-    """
-    Regime 3-A: Winner-Takes-All IQC
-    Only the winning memory is updated.
-    """
-
-    def __init__(self, memory_bank, eta, backend = ExactBackend()):
-        self.memory_bank = memory_bank
-        self.eta = eta
-        self.backend = backend
-        self.num_updates = 0
-
-        self.history = {
-            "winner_idx": [],
-            "scores": [],
-            "updates": [],
-        }
-
-    def step(self, psi, y):
-        idx, score = self.memory_bank.winner(psi)
-        cs = self.memory_bank.class_states[idx]
-
-        chi_new, updated = update(
-            cs.vector, psi, y, self.eta, self.backend
-        )
-
-        if updated:
-            cs.vector = chi_new
-            self.num_updates += 1
-
-        y_hat = 1 if score >= 0 else -1
-
-        # logging
-        self.history["winner_idx"].append(idx)
-        self.history["scores"].append(score)
-        self.history["updates"].append(updated)
-
-        return y_hat, idx, updated
-
-    def fit(self, X, y):
-        correct = 0
-        for x, y in zip(X, y):
-            y_hat, _, _ = self.step(x, y)
-            if y_hat == y:
-                correct += 1
-        return correct / len(X)
-
-    
-    def predict_one(self, X):
-        _, score = self.memory_bank.winner(X)
-        return 1 if score >= 0 else -1
-    
-    def predict(self, X):
-        return [self.predict_one(x) for x in X]
-    
-    def save(self, path):
-        """
-        Save trained memory bank and history.
-        """
-        payload = {
-            "memory_bank": self.memory_bank,
-            "eta": self.eta,
-            "num_updates": self.num_updates,
-            "history": self.history,
-            "backend": self.backend,
-        }
-
-        with open(path, "wb") as f:
-            pickle.dump(payload, f)
-
-    @classmethod
-    def load(cls, path):
-        """
-        Load a trained Winner-Take-All model.
-        """
-        with open(path, "rb") as f:
-            payload = pickle.load(f)
-
-        obj = cls(
-            memory_bank=payload["memory_bank"],
-            eta=payload["eta"],
-            backend=payload["backend"],
-        )
-
-        # restore training statistics
-        obj.num_updates = payload["num_updates"]
-        obj.history = payload["history"]
-
-        return obj
-```
-
-## File: src/IQL/models/adaptive_memory.py
-
-```py
-import numpy as np
-from collections import deque
-from src.IQL.learning.update import update
-from src.IQL.backends.exact import ExactBackend
-import pickle
-
-class AdaptiveMemory:
-    """
-    Regime 3-C: Dynamic Memory Growth with Percentile-based τ
-    """
-
-    def __init__(
-        self,
-        memory_bank,
-        eta=0.1,
-        percentile=5,
-        tau_abs = -0.4,
-        margin_window=500,
-        backend=ExactBackend()
-    ):
-        self.memory_bank = memory_bank
-        self.eta = eta
-        self.percentile = percentile
-        self.tau_abs = tau_abs
-        self.backend = backend
-
-        # store recent margins
-        self.margins = deque(maxlen=margin_window)
-
-        self.num_updates = 0
-        self.num_spawns = 0
-
-        self.history = {
-            "margin": [],
-            "spawned": [],
-            "num_memories": [],
-        }
-
-    def aggregated_score(self, psi):
-        scores = self.memory_bank.scores(psi)
-        return sum(scores) / len(scores)
-
-    def step(self, psi, y):
-        S = self.aggregated_score(psi)
-        margin = y * S
-
-        # collect negative margins only
-        neg_margins = [m for m in self.margins if m < 0]
-
-        spawned = False
-
-        # compute percentile only if we have enough negative history
-        if len(neg_margins) >= 20:
-            tau = np.percentile(neg_margins, self.percentile)
-
-            if margin < tau:
-                # 🔥 spawn new memory
-                chi_new = y * psi
-                chi_new = chi_new / np.linalg.norm(chi_new)
-                self.memory_bank.add_memory(chi_new, self.backend)
-                self.num_spawns += 1
-                spawned = True
-
-        # otherwise, normal Regime-2 update on winner
-        if not spawned and margin < 0:
-            idx, _ = self.memory_bank.winner(psi)
-            cs = self.memory_bank.class_states[idx]
-
-            chi_new, updated = update(
-                cs.vector, psi, y, self.eta, self.backend
-            )
-
-            if updated:
-                cs.vector = chi_new
-                self.num_updates += 1
-
-        # logging
-        self.margins.append(margin)
-        self.history["margin"].append(margin)
-        self.history["spawned"].append(spawned)
-        self.history["num_memories"].append(len(self.memory_bank.class_states))
-
-        return margin, spawned
-    
-    def memory_size(self):
-        return len(self.memory_bank.class_states)
-
-    def fit(self, X, y):
-        for psi, y in zip(X, y):
-            self.step(psi, y)
-
-    def predict_one(self, X):
-        _, score = self.memory_bank.winner(X)
-        return 1 if score >= 0 else -1
-    
-    def predict(self, X):
-        return [self.predict_one(x) for x in X]
-        
-    def save(self, path):
-        """
-        Save trained memory + training history.
-        """
-        payload = {
-            "memory_bank": self.memory_bank,
-            "eta": self.eta,
-            "percentile": self.percentile,
-            "tau_abs": self.tau_abs,
-            "margins": list(self.margins),
-            "num_updates": self.num_updates,
-            "num_spawns": self.num_spawns,
-            "history": self.history,
-            "backend": self.backend,
-        }
-
-        with open(path, "wb") as f:
-            pickle.dump(payload, f)
-
-    @classmethod
-    def load(cls, path):
-        """
-        Load a previously trained Regime-3C model.
-        """
-        with open(path, "rb") as f:
-            payload = pickle.load(f)
-
-        obj = cls(
-            memory_bank=payload["memory_bank"],
-            eta=payload["eta"],
-            percentile=payload["percentile"],
-            tau_abs=payload["tau_abs"],
-            margin_window=len(payload["margins"]),
-            backend=payload["backend"],
-        )
-
-        # restore training state
-        from collections import deque
-        obj.margins = deque(payload["margins"], maxlen=len(payload["margins"]))
-        obj.num_updates = payload["num_updates"]
-        obj.num_spawns = payload["num_spawns"]
-        obj.history = payload["history"]
-
-        return obj
-```
-
-## File: src/IQL/models/online_perceptron.py
-
-```py
-import numpy as np
-from src.IQL.learning.update import update
-import pickle
-
-class OnlinePerceptron:
-    """
-    Online Interference Quantum Classifier (Regime 2)
-
-    Fixed circuit.
-    Trainable object: |chi>
-    """
-
-    def __init__(self, class_state, eta: float):
-        self.class_state = class_state
-        self.eta = eta
-        # logs
-        self.num_updates = 0
-        self.history = {
-            "scores": [],
-            "margins": [],
-            "updates": [],
-        }
-
-    def step(self, psi: np.ndarray, y: int):
-        """
-        Process a single training example.
-        """
-        s = self.class_state.score(psi)
-        margin = y * s
-        y_hat = 1 if s >= 0 else -1
-
-        chi_new, updated = update(
-            self.class_state.vector, psi, y, self.eta, self.class_state.backend
-        )
-
-        if updated:
-            self.class_state.vector = chi_new
-            self.num_updates += 1
-
-        # logging
-        self.history["scores"].append(s)
-        self.history["margins"].append(margin)
-        self.history["updates"].append(updated)
-
-        return y_hat, s, updated
-
-    def fit(self, X, y):
-        """
-        Single-pass online training.
-        dataset: iterable of (psi, y)
-        """
-        correct = 0
-
-        for i in range(len(X)):
-            y_hat, _, _ = self.step(X[i], y[i])
-            if y_hat == y[i]:
-                correct += 1
-
-        accuracy = correct / len(X)
-        return accuracy
-    
-    def predict_one(self, X):
-        s = self.class_state.score(X)
-        return 1 if s >= 0 else -1
-    
-    def predict(self, X):
-        return [self.predict_one(x) for x in X]
-
-    def save(self, path):
-        """
-        Save trained perceptron state and history.
-        """
-        payload = {
-            "class_state": self.class_state,
-            "eta": self.eta,
-            "num_updates": self.num_updates,
-            "history": self.history,
-            "backend": self.class_state.backend,
-        }
-
-        with open(path, "wb") as f:
-            pickle.dump(payload, f)
-
-    @classmethod
-    def load(cls, path):
-        """
-        Load a trained perceptron model.
-        """
-        with open(path, "rb") as f:
-            payload = pickle.load(f)
-
-        obj = cls(
-            class_state=payload["class_state"],
-            eta=payload["eta"],
-        )
-
-        # restore training statistics
-        obj.num_updates = payload["num_updates"]
-        obj.num_mistakes = payload["num_mistakes"]
-        obj.margin_history = payload["margin_history"]
-        obj.history = payload["history"]
-
-        return obj
-```
-
-## File: src/IQL/models/__init__.py
-
-```py
-
-```
-
 ## File: src/IQL/learning/class_state.py
 
 ```py
@@ -918,6 +560,118 @@ class InterferenceBackend(ABC):
 
 ```
 
+## File: src/IQL/backends/prime_b.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import StatePreparation
+
+from .base import InterferenceBackend
+
+
+class PrimeBBackend(InterferenceBackend):
+    """
+    PrimeB (ISDO-B′) Backend
+    -----------------------
+
+    Observable-engineered, decision-sufficient implementation of ISDO.
+
+    Computes:
+        S(ψ; χ) = ⟨ψ | U_χ† Z^{⊗n} U_χ | ψ⟩
+
+    Properties:
+    - No ancilla qubit
+    - No controlled unitaries
+    - χ appears only as a basis rotation
+    - Fixed, hardware-native observable
+    - Preserves sign + ordering (not exact inner product)
+
+    Intended role:
+    - Fast inference
+    - NISQ-friendly deployment backend
+    \"""
+
+    @staticmethod
+    def _statevector_to_unitary(state: np.ndarray) -> np.ndarray:
+        """
+        Construct a unitary U such that:
+            U |0...0⟩ = |state⟩
+
+        Uses Gram–Schmidt completion.
+        """
+        state = np.asarray(state, dtype=np.complex128)
+        state = state / np.linalg.norm(state)
+
+        dim = len(state)
+        U = np.zeros((dim, dim), dtype=np.complex128)
+        U[:, 0] = state
+
+        for i in range(1, dim):
+            v = np.zeros(dim, dtype=np.complex128)
+            v[i] = 1.0
+
+            for j in range(i):
+                v -= np.vdot(U[:, j], v) * U[:, j]
+
+            norm = np.linalg.norm(v)
+            if norm < 1e-12:
+                v = np.random.randn(dim) + 1j * np.random.randn(dim)
+                for j in range(i):
+                    v -= np.vdot(U[:, j], v) * U[:, j]
+                v /= np.linalg.norm(v)
+            else:
+                v /= norm
+
+            U[:, i] = v
+
+        return U
+
+    def score(self, chi: np.ndarray, psi: np.ndarray) -> float:
+        \"""
+        Compute PrimeB interference score.
+
+        Args:
+            chi : np.ndarray
+                Class memory state |χ⟩
+            psi : np.ndarray
+                Input state |ψ⟩
+
+        Returns:
+            float
+                Decision-sufficient interference score
+        \"""
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+
+        chi /= np.linalg.norm(chi)
+        psi /= np.linalg.norm(psi)
+
+        dim = len(psi)
+        n = int(np.log2(dim))
+        if 2 ** n != dim:
+            raise ValueError("State dimension must be a power of 2")
+
+        # Build circuit
+        qc = QuantumCircuit(n)
+
+        # Prepare |ψ⟩
+        qc.append(StatePreparation(psi), range(n))
+
+        # Apply U_χ
+        U_chi = self._statevector_to_unitary(chi)
+        qc.unitary(U_chi, range(n), label="U_chi")
+
+        # Evaluate ⟨Z^{⊗n}⟩
+        sv = Statevector.from_instruction(qc)
+        observable = Pauli("Z"+"I" * (n-1))
+
+        return float(sv.expectation_value(observable).real)
+    """
+    pass
+```
+
 ## File: src/IQL/backends/hadamard.py
 
 ```py
@@ -1097,6 +851,365 @@ class ExactBackend(InterferenceBackend):
 ```
 
 ## File: src/IQL/backends/__init__.py
+
+```py
+
+```
+
+## File: src/IQL/regimes/regime3c_adaptive.py
+
+```py
+import numpy as np
+from collections import deque
+from src.IQL.learning.update import update
+from src.IQL.backends.exact import ExactBackend
+import pickle
+
+class AdaptiveMemory:
+    """
+    Regime 3-C: Dynamic Memory Growth with Percentile-based τ
+    """
+
+    def __init__(
+        self,
+        memory_bank,
+        eta=0.1,
+        percentile=5,
+        tau_abs = -0.4,
+        margin_window=500,
+        backend=ExactBackend()
+    ):
+        self.memory_bank = memory_bank
+        self.eta = eta
+        self.percentile = percentile
+        self.tau_abs = tau_abs
+        self.backend = backend
+
+        # store recent margins
+        self.margins = deque(maxlen=margin_window)
+
+        self.num_updates = 0
+        self.num_spawns = 0
+
+        self.history = {
+            "margin": [],
+            "spawned": [],
+            "num_memories": [],
+        }
+
+    def aggregated_score(self, psi):
+        scores = self.memory_bank.scores(psi)
+        return sum(scores) / len(scores)
+
+    def step(self, psi, y):
+        S = self.aggregated_score(psi)
+        margin = y * S
+
+        # collect negative margins only
+        neg_margins = [m for m in self.margins if m < 0]
+
+        spawned = False
+
+        # compute percentile only if we have enough negative history
+        if len(neg_margins) >= 20:
+            tau = np.percentile(neg_margins, self.percentile)
+
+            if margin < tau:
+                # 🔥 spawn new memory
+                chi_new = y * psi
+                chi_new = chi_new / np.linalg.norm(chi_new)
+                self.memory_bank.add_memory(chi_new, self.backend)
+                self.num_spawns += 1
+                spawned = True
+
+        # otherwise, normal Regime-2 update on winner
+        if not spawned and margin < 0:
+            idx, _ = self.memory_bank.winner(psi)
+            cs = self.memory_bank.class_states[idx]
+
+            chi_new, updated = update(
+                cs.vector, psi, y, self.eta, self.backend
+            )
+
+            if updated:
+                cs.vector = chi_new
+                self.num_updates += 1
+
+        # logging
+        self.margins.append(margin)
+        self.history["margin"].append(margin)
+        self.history["spawned"].append(spawned)
+        self.history["num_memories"].append(len(self.memory_bank.class_states))
+
+        return margin, spawned
+    
+    def memory_size(self):
+        return len(self.memory_bank.class_states)
+
+    def fit(self, X, y):
+        for psi, y in zip(X, y):
+            self.step(psi, y)
+
+    def predict_one(self, X):
+        _, score = self.memory_bank.winner(X)
+        return 1 if score >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]
+        
+    def save(self, path):
+        """
+        Save trained memory + training history.
+        """
+        payload = {
+            "memory_bank": self.memory_bank,
+            "eta": self.eta,
+            "percentile": self.percentile,
+            "tau_abs": self.tau_abs,
+            "margins": list(self.margins),
+            "num_updates": self.num_updates,
+            "num_spawns": self.num_spawns,
+            "history": self.history,
+            "backend": self.backend,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a previously trained Regime-3C model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            memory_bank=payload["memory_bank"],
+            eta=payload["eta"],
+            percentile=payload["percentile"],
+            tau_abs=payload["tau_abs"],
+            margin_window=len(payload["margins"]),
+            backend=payload["backend"],
+        )
+
+        # restore training state
+        from collections import deque
+        obj.margins = deque(payload["margins"], maxlen=len(payload["margins"]))
+        obj.num_updates = payload["num_updates"]
+        obj.num_spawns = payload["num_spawns"]
+        obj.history = payload["history"]
+
+        return obj
+```
+
+## File: src/IQL/regimes/regime3a_wta.py
+
+```py
+from src.IQL.learning.update import update
+from src.IQL.backends.exact import ExactBackend
+import pickle
+
+class WinnerTakeAll:
+    """
+    Regime 3-A: Winner-Takes-All IQC
+    Only the winning memory is updated.
+    """
+
+    def __init__(self, memory_bank, eta, backend = ExactBackend()):
+        self.memory_bank = memory_bank
+        self.eta = eta
+        self.backend = backend
+        self.num_updates = 0
+
+        self.history = {
+            "winner_idx": [],
+            "scores": [],
+            "updates": [],
+        }
+
+    def step(self, psi, y):
+        idx, score = self.memory_bank.winner(psi)
+        cs = self.memory_bank.class_states[idx]
+
+        chi_new, updated = update(
+            cs.vector, psi, y, self.eta, self.backend
+        )
+
+        if updated:
+            cs.vector = chi_new
+            self.num_updates += 1
+
+        y_hat = 1 if score >= 0 else -1
+
+        # logging
+        self.history["winner_idx"].append(idx)
+        self.history["scores"].append(score)
+        self.history["updates"].append(updated)
+
+        return y_hat, idx, updated
+
+    def fit(self, X, y):
+        correct = 0
+        for x, y in zip(X, y):
+            y_hat, _, _ = self.step(x, y)
+            if y_hat == y:
+                correct += 1
+        return correct / len(X)
+
+    
+    def predict_one(self, X):
+        _, score = self.memory_bank.winner(X)
+        return 1 if score >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]
+    
+    def save(self, path):
+        """
+        Save trained memory bank and history.
+        """
+        payload = {
+            "memory_bank": self.memory_bank,
+            "eta": self.eta,
+            "num_updates": self.num_updates,
+            "history": self.history,
+            "backend": self.backend,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a trained Winner-Take-All model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            memory_bank=payload["memory_bank"],
+            eta=payload["eta"],
+            backend=payload["backend"],
+        )
+
+        # restore training statistics
+        obj.num_updates = payload["num_updates"]
+        obj.history = payload["history"]
+
+        return obj
+```
+
+## File: src/IQL/regimes/regime2_online.py
+
+```py
+import numpy as np
+from src.IQL.learning.update import update
+import pickle
+
+class OnlinePerceptron:
+    """
+    Online Interference Quantum Classifier (Regime 2)
+
+    Fixed circuit.
+    Trainable object: |chi>
+    """
+
+    def __init__(self, class_state, eta: float):
+        self.class_state = class_state
+        self.eta = eta
+        # logs
+        self.num_updates = 0
+        self.history = {
+            "scores": [],
+            "margins": [],
+            "updates": [],
+        }
+
+    def step(self, psi: np.ndarray, y: int):
+        """
+        Process a single training example.
+        """
+        s = self.class_state.score(psi)
+        margin = y * s
+        y_hat = 1 if s >= 0 else -1
+
+        chi_new, updated = update(
+            self.class_state.vector, psi, y, self.eta, self.class_state.backend
+        )
+
+        if updated:
+            self.class_state.vector = chi_new
+            self.num_updates += 1
+
+        # logging
+        self.history["scores"].append(s)
+        self.history["margins"].append(margin)
+        self.history["updates"].append(updated)
+
+        return y_hat, s, updated
+
+    def fit(self, X, y):
+        """
+        Single-pass online training.
+        dataset: iterable of (psi, y)
+        """
+        correct = 0
+
+        for i in range(len(X)):
+            y_hat, _, _ = self.step(X[i], y[i])
+            if y_hat == y[i]:
+                correct += 1
+
+        accuracy = correct / len(X)
+        return accuracy
+    
+    def predict_one(self, X):
+        s = self.class_state.score(X)
+        return 1 if s >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]
+
+    def save(self, path):
+        """
+        Save trained perceptron state and history.
+        """
+        payload = {
+            "class_state": self.class_state,
+            "eta": self.eta,
+            "num_updates": self.num_updates,
+            "history": self.history,
+            "backend": self.class_state.backend,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a trained perceptron model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            class_state=payload["class_state"],
+            eta=payload["eta"],
+        )
+
+        # restore training statistics
+        obj.num_updates = payload["num_updates"]
+        obj.num_mistakes = payload["num_mistakes"]
+        obj.margin_history = payload["margin_history"]
+        obj.history = payload["history"]
+
+        return obj
+```
+
+## File: src/IQL/regimes/__init__.py
 
 ```py
 
@@ -1716,9 +1829,9 @@ import numpy as np
 from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.backends.exact import ExactBackend
-from src.IQL.models.online_perceptron import OnlinePerceptron
-from src.IQL.models.winner_take_all import WinnerTakeAll
-from src.IQL.models.adaptive_memory import AdaptiveMemory
+from src.IQL.regimes.regime2_online import OnlinePerceptron
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
 
 def test_consistency():
     print("Running consistency tests...")
@@ -1777,8 +1890,8 @@ from sklearn.metrics import accuracy_score
 from sklearn.svm import SVC
 
 from src.utils.paths import load_paths
-from src.IQC.interference.exact_backend import ExactBackend
-from src.IQC.interference.transition_backend import TransitionBackend
+from src.IQL.interference.exact_backend import ExactBackend
+from src.IQL.interference.transition_backend import TransitionBackend
 from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
 
 # -------------------------------------------------
@@ -1905,7 +2018,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 
 from src.utils.paths import load_paths
-from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
+from src.IQL.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
 
 # -----------------------------
 # Load paths
@@ -2087,10 +2200,10 @@ from sklearn.metrics import accuracy_score
 
 from src.utils.paths import load_paths
 from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
-from src.IQC.training.online_perceptron_trainer import OnlinePerceptronTrainer
-from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
-from src.IQC.states.class_state import ClassState
-from src.IQC.memory.memory_bank import MemoryBank
+from src.IQL.training.online_perceptron_trainer import OnlinePerceptronTrainer
+from src.IQL.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
+from src.IQL.states.class_state import ClassState
+from src.IQL.memory.memory_bank import MemoryBank
 import pickle
 
 # -----------------------------
@@ -2172,238 +2285,7 @@ Adaptive_Memory_Size     : 45
 """ 
 ```
 
-## File: src/training/Adaptive_model_test/consolidate_memory.py
-
-```py
-import os
-import numpy as np
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-from src.IQL.encoding.embedding_to_state import embedding_to_state
-from src.IQL.models.winner_take_all import WinnerTakeAll
-from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
-from src.IQL.backends.exact import ExactBackend
-from src.IQL.learning.memory_bank import MemoryBank
-import pickle
-
-# -------------------------------------------------
-# Reproducibility
-# -------------------------------------------------
-set_seed(42)
-
-
-# -------------------------------------------------
-# Load paths
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-os.makedirs(EMBED_DIR, exist_ok=True)
-
-
-# -------------------------------------------------
-# Load embeddings (TRAIN SPLIT)
-# -------------------------------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-# -------------------------------------------------
-# 🔒 LOAD MEMORY BANK FROM REGIME 3-C
-# -------------------------------------------------
-# IMPORTANT:
-# This must be the SAME memory_bank produced by Regime 3-C
-
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
-with open(MEMORY_PATH, "rb") as f:
-    memory_bank = pickle.load(f)
-
-print("Loaded memory bank with",
-      len(memory_bank.class_states),
-      "memories")
-
-
-# -------------------------------------------------
-# 🔁 CONSOLIDATION PHASE (NO GROWTH)
-# -------------------------------------------------
-# Use Regime 3-A trainer:
-# - updates memories
-# - NO spawning logic
-trainer = WinnerTakeAll(
-    memory_bank=memory_bank,
-    eta=0.05,      # slightly smaller eta for stabilization
-    backend=ExactBackend()
-)
-
-acc_train = trainer.fit(X_train, y_train)
-print("Consolidation pass accuracy:", acc_train)
-print("Updates during consolidation:", trainer.num_updates)
-
-
-# -------------------------------------------------
-# 📊 FINAL EVALUATION (Regime 3-B inference)
-# -------------------------------------------------
-classifier = WeightedVoteClassifier(memory_bank)
-
-correct = 0
-for x, y in zip(X_train, y_train):
-    if classifier.predict(x) == y:
-        correct += 1
-
-final_acc = correct / len(X_train)
-print("FINAL Regime 3-C accuracy:", final_acc)
-
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Loaded memory bank with 22 memories
-Consolidation pass accuracy: 0.8048571428571428
-Updates during consolidation: 683
-FINAL Regime 3-C accuracy: 0.884
-"""
-
-```
-
-## File: src/training/Adaptive_model_test/train_adaptive_memory.py
-
-```py
-import os
-import numpy as np
-from collections import Counter
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-from src.IQL.learning.class_state import ClassState
-from src.IQL.encoding.embedding_to_state import embedding_to_state
-from src.IQL.learning.memory_bank import MemoryBank
-from src.IQL.backends.exact import ExactBackend
-
-from src.IQL.models.adaptive_memory import AdaptiveMemory
-from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
-import pickle
-
-
-# -------------------------------------------------
-# Reproducibility
-# -------------------------------------------------
-set_seed(42)
-
-
-# -------------------------------------------------
-# Load paths
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-os.makedirs(PATHS["artifacts"], exist_ok=True)
-
-# -------------------------------------------------
-# Load embeddings (TRAIN SPLIT)
-# -------------------------------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-
-# -------------------------------------------------
-# Initialize memory bank (M = 3)
-# -------------------------------------------------
-d = X_train[0].shape[0]
-
-backend = ExactBackend()
-
-class_states = []
-for _ in range(3):
-    v = np.random.randn(d)
-    v /= np.linalg.norm(v)
-    class_states.append(ClassState(v,backend=backend))
-
-
-
-memory_bank = MemoryBank(
-    class_states=class_states
-)
-
-print("Initial number of memories:", len(memory_bank.class_states))
-
-
-# -------------------------------------------------
-# Train Regime 3-C (percentile-based τ)
-# -------------------------------------------------
-trainer = AdaptiveMemory(
-    memory_bank=memory_bank,
-    eta=0.1,
-    percentile=5,       # τ = 5th percentile of margins
-    tau_abs = -0.121,
-    margin_window=500,   # sliding window for stability
-    backend=backend,
-)
-
-trainer.fit(X_train, y_train)
-
-print("Training finished.")
-print("Number of memories after training:", len(memory_bank.class_states))
-print("Number of spawned memories:", trainer.num_spawns)
-print("Number of updates:", trainer.num_updates)
-
-
-# -------------------------------------------------
-# Evaluate using Regime 3-B inference
-# -------------------------------------------------
-classifier = WeightedVoteClassifier(memory_bank)
-
-correct = 0
-for psi, y in zip(X_train, y_train):
-    if classifier.predict(psi) == y:
-        correct += 1
-
-acc_3c = correct / len(X_train)
-print("Regime 3-C accuracy (3-B inference):", acc_3c)
-
-
-# -------------------------------------------------
-# Optional diagnostics
-# -------------------------------------------------
-print("Final memory count:", len(memory_bank.class_states))
-
-with open(MEMORY_PATH, "wb") as f:
-    pickle.dump(memory_bank, f)
-
-print("Saved Regime 3-C memory bank.")
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Initial number of memories: 3
-Training finished.
-Number of memories after training: 22
-Number of spawned memories: 19
-Number of updates: 429
-Regime 3-C accuracy (3-B inference): 0.788
-Final memory count: 22
-Saved Regime 3-C memory bank.
-"""
-```
-
-## File: src/training/online_model_test/train_perceptron.py
+## File: src/training/protocol_online/train_perceptron.py
 
 ```py
 import numpy as np
@@ -2411,7 +2293,7 @@ import os
 
 from src.IQL.learning.class_state import ClassState
 from src.IQL.encoding.embedding_to_state import embedding_to_state
-from src.IQL.models.online_perceptron import OnlinePerceptron
+from src.IQL.regimes.regime2_online import OnlinePerceptron
 from src.IQL.learning.metrics import summarize_training
 from src.IQL.backends.exact import ExactBackend
 from src.utils.paths import load_paths
@@ -2472,7 +2354,7 @@ Training stats: {'mean_margin': 0.14930659062683652, 'min_margin': -0.7069261085
 """
 ```
 
-## File: src/training/Static_test/evaluate_isdo_k_sweep.py
+## File: src/training/protocol_static/evaluate_isdo_k_sweep.py
 
 ```py
 import os
@@ -2528,7 +2410,7 @@ plt.grid(True)
 plt.savefig(os.path.join(PATHS["figures"], "isdo_k_sweep.png"))
 ```
 
-## File: src/training/Static_test/evaluate_static_isdo.py
+## File: src/training/protocol_static/evaluate_static_isdo.py
 
 ```py
 import os
@@ -3042,6 +2924,237 @@ for i in range(2):
 
 plt.show()
 
+```
+
+## File: src/training/protocol_adaptive/consolidate_memory.py
+
+```py
+import os
+import numpy as np
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+from src.IQL.encoding.embedding_to_state import embedding_to_state
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.learning.memory_bank import MemoryBank
+import pickle
+
+# -------------------------------------------------
+# Reproducibility
+# -------------------------------------------------
+set_seed(42)
+
+
+# -------------------------------------------------
+# Load paths
+# -------------------------------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+os.makedirs(EMBED_DIR, exist_ok=True)
+
+
+# -------------------------------------------------
+# Load embeddings (TRAIN SPLIT)
+# -------------------------------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded train embeddings:", X_train.shape)
+
+# -------------------------------------------------
+# 🔒 LOAD MEMORY BANK FROM REGIME 3-C
+# -------------------------------------------------
+# IMPORTANT:
+# This must be the SAME memory_bank produced by Regime 3-C
+
+MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
+
+with open(MEMORY_PATH, "rb") as f:
+    memory_bank = pickle.load(f)
+
+print("Loaded memory bank with",
+      len(memory_bank.class_states),
+      "memories")
+
+
+# -------------------------------------------------
+# 🔁 CONSOLIDATION PHASE (NO GROWTH)
+# -------------------------------------------------
+# Use Regime 3-A trainer:
+# - updates memories
+# - NO spawning logic
+trainer = WinnerTakeAll(
+    memory_bank=memory_bank,
+    eta=0.05,      # slightly smaller eta for stabilization
+    backend=ExactBackend()
+)
+
+acc_train = trainer.fit(X_train, y_train)
+print("Consolidation pass accuracy:", acc_train)
+print("Updates during consolidation:", trainer.num_updates)
+
+
+# -------------------------------------------------
+# 📊 FINAL EVALUATION (Regime 3-B inference)
+# -------------------------------------------------
+classifier = WeightedVoteClassifier(memory_bank)
+
+correct = 0
+for x, y in zip(X_train, y_train):
+    if classifier.predict(x) == y:
+        correct += 1
+
+final_acc = correct / len(X_train)
+print("FINAL Regime 3-C accuracy:", final_acc)
+
+
+### output
+"""
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Loaded memory bank with 22 memories
+Consolidation pass accuracy: 0.8048571428571428
+Updates during consolidation: 683
+FINAL Regime 3-C accuracy: 0.884
+"""
+
+```
+
+## File: src/training/protocol_adaptive/train_adaptive_memory.py
+
+```py
+import os
+import numpy as np
+from collections import Counter
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+from src.IQL.learning.class_state import ClassState
+from src.IQL.encoding.embedding_to_state import embedding_to_state
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.backends.exact import ExactBackend
+
+from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
+from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
+import pickle
+
+
+# -------------------------------------------------
+# Reproducibility
+# -------------------------------------------------
+set_seed(42)
+
+
+# -------------------------------------------------
+# Load paths
+# -------------------------------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
+
+os.makedirs(EMBED_DIR, exist_ok=True)
+os.makedirs(PATHS["artifacts"], exist_ok=True)
+
+# -------------------------------------------------
+# Load embeddings (TRAIN SPLIT)
+# -------------------------------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded train embeddings:", X_train.shape)
+
+
+# -------------------------------------------------
+# Initialize memory bank (M = 3)
+# -------------------------------------------------
+d = X_train[0].shape[0]
+
+backend = ExactBackend()
+
+class_states = []
+for _ in range(3):
+    v = np.random.randn(d)
+    v /= np.linalg.norm(v)
+    class_states.append(ClassState(v,backend=backend))
+
+
+
+memory_bank = MemoryBank(
+    class_states=class_states
+)
+
+print("Initial number of memories:", len(memory_bank.class_states))
+
+
+# -------------------------------------------------
+# Train Regime 3-C (percentile-based τ)
+# -------------------------------------------------
+trainer = AdaptiveMemory(
+    memory_bank=memory_bank,
+    eta=0.1,
+    percentile=5,       # τ = 5th percentile of margins
+    tau_abs = -0.121,
+    margin_window=500,   # sliding window for stability
+    backend=backend,
+)
+
+trainer.fit(X_train, y_train)
+
+print("Training finished.")
+print("Number of memories after training:", len(memory_bank.class_states))
+print("Number of spawned memories:", trainer.num_spawns)
+print("Number of updates:", trainer.num_updates)
+
+
+# -------------------------------------------------
+# Evaluate using Regime 3-B inference
+# -------------------------------------------------
+classifier = WeightedVoteClassifier(memory_bank)
+
+correct = 0
+for psi, y in zip(X_train, y_train):
+    if classifier.predict(psi) == y:
+        correct += 1
+
+acc_3c = correct / len(X_train)
+print("Regime 3-C accuracy (3-B inference):", acc_3c)
+
+
+# -------------------------------------------------
+# Optional diagnostics
+# -------------------------------------------------
+print("Final memory count:", len(memory_bank.class_states))
+
+with open(MEMORY_PATH, "wb") as f:
+    pickle.dump(memory_bank, f)
+
+print("Saved Regime 3-C memory bank.")
+
+### output
+"""
+🌱 Global seed set to 42
+Loaded train embeddings: (3500, 32)
+Initial number of memories: 3
+Training finished.
+Number of memories after training: 22
+Number of spawned memories: 19
+Number of updates: 429
+Regime 3-C accuracy (3-B inference): 0.788
+Final memory count: 22
+Saved Regime 3-C memory bank.
+"""
 ```
 
 ## File: src/classical/cnn.py

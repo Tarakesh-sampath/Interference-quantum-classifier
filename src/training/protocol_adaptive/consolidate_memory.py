@@ -5,7 +5,7 @@ from src.utils.paths import load_paths
 from src.utils.seed import set_seed
 
 from src.IQL.encoding.embedding_to_state import embedding_to_state
-from src.IQL.models.winner_take_all import WinnerTakeAll
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
 from src.IQL.backends.exact import ExactBackend
 from src.IQL.learning.memory_bank import MemoryBank

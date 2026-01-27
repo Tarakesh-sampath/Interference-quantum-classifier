@@ -8,7 +8,8 @@ from sklearn.svm import SVC
 from src.utils.paths import load_paths
 from src.IQL.interference.exact_backend import ExactBackend
 from src.IQL.interference.transition_backend import TransitionBackend
-from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
+from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
+
 
 # -------------------------------------------------
 # Config

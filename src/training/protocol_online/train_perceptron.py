@@ -3,7 +3,7 @@ import os
 
 from src.IQL.learning.class_state import ClassState
 from src.IQL.encoding.embedding_to_state import embedding_to_state
-from src.IQL.models.online_perceptron import OnlinePerceptron
+from src.IQL.regimes.regime2_online import OnlinePerceptron
 from src.IQL.learning.metrics import summarize_training
 from src.IQL.backends.exact import ExactBackend
 from src.utils.paths import load_paths
