@@ -1,3 +1,5 @@
+from src.IQL.learning.class_state import ClassState
+
 class MemoryBank:
     def __init__(self, class_states, backend):
         self.class_states = class_states
@@ -16,5 +18,4 @@ class MemoryBank:
         return idx, scores[idx]
 
     def add_memory(self, chi_vector):
-        from ..states.class_state import ClassState
         self.class_states.append(ClassState(chi_vector))
