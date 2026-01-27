@@ -5,10 +5,10 @@ from collections import Counter
 from src.utils.paths import load_paths
 from src.utils.seed import set_seed
 
-from src.IQL.states.class_state import ClassState
+from src.IQL.learning.class_state import ClassState
 from src.IQL.encoding.embedding_to_state import embedding_to_state
-from src.IQL.memory.memory_bank import MemoryBank
-from src.IQL.backends.exact import ExactBackend
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.backends.transition import TransitionBackend
 
 from src.IQL.models.adaptive_memory import AdaptiveMemory
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
@@ -55,7 +55,7 @@ for _ in range(3):
     v /= np.linalg.norm(v)
     class_states.append(ClassState(v))
 
-backend = ExactBackend()
+backend = TransitionBackend()
 
 memory_bank = MemoryBank(
     class_states=class_states,

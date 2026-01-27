@@ -27,13 +27,12 @@ class OnlinePerceptron:
         """
         Process a single training example.
         """
-        chi_vec = self.class_state.vector
-        s = self.backend.score(chi_vec, psi)
+        s = self.class_state.score(psi)
         margin = y * s
         y_hat = 1 if s >= 0 else -1
 
         chi_new, updated = update(
-            chi_vec, psi, y, self.eta, self.backend
+            self.class_state.vector, psi, y, self.eta, self.backend
         )
 
         if updated:
@@ -63,8 +62,7 @@ class OnlinePerceptron:
         return accuracy
     
     def predict_one(self, X):
-        chi_vec = self.class_state.vector
-        s = self.backend.score(chi_vec, X)
+        s = self.class_state.score(X)
         return 1 if s >= 0 else -1
     
     def predict(self, X):
@@ -75,11 +73,9 @@ class OnlinePerceptron:
         Save trained perceptron state and history.
         """
         payload = {
-            "class_state": self.class_state,   # or self.chi
+            "class_state": self.class_state,
             "eta": self.eta,
             "num_updates": self.num_updates,
-            "num_mistakes": self.num_mistakes,
-            "margin_history": self.margin_history,
             "history": self.history,
             "backend": self.backend,
         }

@@ -7,8 +7,9 @@ from src.utils.seed import set_seed
 from src.IQL.encoding.embedding_to_state import embedding_to_state
 from src.IQL.models.winner_take_all import WinnerTakeAll
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
-from src.IQL.backends.exact import ExactBackend
-
+from src.IQL.backends.transition import TransitionBackend
+from src.IQL.learning.memory_bank import MemoryBank
+import pickle
 
 # -------------------------------------------------
 # Reproducibility
@@ -41,8 +42,6 @@ print("Loaded train embeddings:", X_train.shape)
 # -------------------------------------------------
 # IMPORTANT:
 # This must be the SAME memory_bank produced by Regime 3-C
-from src.IQC.memory.memory_bank import MemoryBank
-import pickle
 
 MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
 
@@ -63,7 +62,7 @@ print("Loaded memory bank with",
 trainer = WinnerTakeAll(
     memory_bank=memory_bank,
     eta=0.05,      # slightly smaller eta for stabilization
-    backend=ExactBackend()
+    backend=TransitionBackend()
 )
 
 acc_train = trainer.fit(X_train, y_train)

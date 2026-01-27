@@ -15,7 +15,8 @@ class AdaptiveMemory:
         eta=0.1,
         percentile=5,
         tau_abs = -0.4,
-        margin_window=500,backend = ExactBackend()
+        margin_window=500,
+        backend=ExactBackend()
     ):
         self.memory_bank = memory_bank
         self.eta = eta

@@ -65,7 +65,6 @@ class WinnerTakeAll:
             "memory_bank": self.memory_bank,
             "eta": self.eta,
             "num_updates": self.num_updates,
-            "winner_indices": self.winner_indices,
             "history": self.history,
             "backend": self.backend,
         }
@@ -89,7 +88,6 @@ class WinnerTakeAll:
 
         # restore training statistics
         obj.num_updates = payload["num_updates"]
-        obj.winner_indices = payload["winner_indices"]
         obj.history = payload["history"]
 
         return obj
