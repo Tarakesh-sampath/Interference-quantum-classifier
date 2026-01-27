@@ -34,7 +34,7 @@ def main():
     # -------------------------------------------------
     # Train Fixed-Memory IQC
     # -------------------------------------------------
-    K = 5
+    K = 1
     model = FixedMemoryIQC(K=K, eta=0.1)
     model.fit(X_train, y_train)
 
