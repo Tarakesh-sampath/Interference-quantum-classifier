@@ -10,6 +10,11 @@ measurement-free-quantum-classifier/
         __init__.py
         IQL/
             __init__.py
+            models/
+                fixed_memory_iqc.py
+                static_isdo_model.py
+                adaptive_iqc.py
+                __init__.py
             learning/
                 class_state.py
                 update.py
@@ -42,6 +47,7 @@ measurement-free-quantum-classifier/
             common.py
             paths.py
             seed.py
+            label_utils.py
             __init__.py
         data/
             pcam_loader.py
@@ -51,10 +57,14 @@ measurement-free-quantum-classifier/
             compute_qsvm_kernel.py
             __init__.py
         training/
+            test_adaptive_iqc.py
             verify_consistency.py
             run_final_comparison.py
             compare_best_iqc_vs_classical.py
+            test_fixed_memory_iqc.py
             validate_backends.py
+            test_static_isdo_model.py
+            test_core_functionality.py
             compare_iqc_algorithms.py
             protocol_online/
                 train_perceptron.py
@@ -339,6 +349,293 @@ class_count:
 
 ```
 
+## File: src/IQL/models/fixed_memory_iqc.py
+
+```py
+# src/IQL/models/fixed_memory_iqc.py
+
+import os
+import numpy as np
+
+from src.utils.paths import load_paths
+from src.IQL.learning.class_state import ClassState
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.learning.calculate_prototype import generate_prototypes
+from src.utils.label_utils import ensure_binary
+
+
+class FixedMemoryIQC:
+    """
+    Fixed-Memory Interference Quantum Classifier (IQC)
+
+    Training pipeline:
+    1. Generate K prototypes per class (if missing)
+    2. Initialize K×2 quantum memory states
+    3. Train with Winner-Take-All (Regime-3A)
+    4. Freeze memory
+    """
+
+    def __init__(self, K: int, eta: float = 0.1, backend=None):
+        self.K = K
+        self.eta = eta
+        self.backend = backend or ExactBackend()
+
+        self.memory_bank = None
+        self.trainer = None
+        self.classifier = None
+
+    def _ensure_prototypes(self, X, y):
+        """
+        Generate prototypes if they do not already exist.
+        """
+        _, PATHS = load_paths()
+        proto_base = PATHS["class_prototypes"]
+        proto_dir = os.path.join(proto_base, f"K{self.K}")
+
+        os.makedirs(proto_dir, exist_ok=True)
+        y_binary = ensure_binary(y)
+        generate_prototypes(
+            X=X,
+            y=y_binary,
+            K=self.K,
+            output_dir=proto_dir
+        )
+
+    def _load_prototypes(self):
+        _, PATHS = load_paths()
+        proto_dir = PATHS["class_prototypes"]
+
+        vectors = []
+        for cls in [0, 1]:
+            for i in range(self.K):
+                path = os.path.join(
+                    proto_dir, f"K{self.K}", f"class{cls}_proto{i}.npy"
+                )
+                vectors.append(np.load(path))
+        return vectors
+
+    def fit(self, X, y):
+        # -------------------------------------------------
+        # Step 1: ensure prototypes exist
+        # -------------------------------------------------
+        self._ensure_prototypes(X, y)
+
+        # -------------------------------------------------
+        # Step 2: initialize memory bank
+        # -------------------------------------------------
+        proto_vectors = self._load_prototypes()
+        class_states = [
+            ClassState(v, backend=self.backend)
+            for v in proto_vectors
+        ]
+        self.memory_bank = MemoryBank(class_states)
+
+        # -------------------------------------------------
+        # Step 3: Regime-3A training
+        # -------------------------------------------------
+        self.trainer = WinnerTakeAll(
+            memory_bank=self.memory_bank,
+            eta=self.eta,
+            backend=self.backend
+        )
+        self.trainer.fit(X, y)
+
+        # -------------------------------------------------
+        # Step 4: freeze → inference
+        # -------------------------------------------------
+        self.classifier = WeightedVoteClassifier(self.memory_bank)
+        return self
+
+    def predict(self, X):
+        if self.classifier is None:
+            raise RuntimeError("Model not trained. Call fit() first.")
+        return [self.classifier.predict(x) for x in X]
+
+```
+
+## File: src/IQL/models/static_isdo_model.py
+
+```py
+# src/IQL/models/static_isdo_model.py
+
+from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
+from src.utils.paths import load_paths
+from src.IQL.learning.calculate_prototype import generate_prototypes
+import os
+
+class StaticISDOModel:
+    """
+    Static ISDO Model (Baseline)
+
+    - K prototypes per class
+    - No learning
+    - Fixed interference reference state |chi>
+    """
+
+    def __init__(self, K: int):
+        _, PATHS = load_paths()
+        self.proto_dir = PATHS["class_prototypes"]
+        self.K = K
+        self.classifier = None
+
+    def _ensure_prototypes(self, X, y):
+        """
+        Generate prototypes if they do not already exist.
+        """
+        _, PATHS = load_paths()
+        proto_base = PATHS["class_prototypes"]
+        proto_dir = os.path.join(proto_base, f"K{self.K}")
+        os.makedirs(proto_dir, exist_ok=True)
+        generate_prototypes(
+            X=X,
+            y=y,
+            K=self.K,
+            output_dir=proto_dir,
+            seed = 42
+        )
+    
+    def fit(self,X,y):
+        """
+        Offline preparation only.
+        Loads precomputed prototypes and builds classifier.
+        """
+        self._ensure_prototypes(X,y)
+        self.classifier = StaticISDOClassifier(
+            proto_dir=self.proto_dir,
+            K=self.K
+        )
+        return self
+
+    def predict(self, X):
+        if self.classifier is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        return self.classifier.predict(X)
+
+```
+
+## File: src/IQL/models/adaptive_iqc.py
+
+```py
+import numpy as np
+
+from src.IQL.learning.class_state import ClassState
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.learning.calculate_prototype import generate_prototypes
+from src.utils.paths import load_paths
+from src.utils.label_utils import ensure_polar, ensure_binary
+
+import os
+
+
+class AdaptiveIQC:
+    """
+    Final Adaptive Interference Quantum Classifier (IQC)
+
+    Pipeline:
+    1. Prototype generation (offline, classical)
+    2. Adaptive growth (Regime-3C)
+    3. Consolidation (Regime-3A)
+    4. Inference-only classifier
+    """
+
+    def __init__(
+        self,
+        K_init=3,
+        eta=0.1,
+        percentile=5,
+        backend=None,
+        consolidate=True,
+    ):
+        self.K_init = K_init
+        self.eta = eta
+        self.percentile = percentile
+        self.backend = backend or ExactBackend()
+        self.consolidate = consolidate
+
+        self.memory_bank = None
+        self.regime3c = None
+        self.classifier = None
+
+    def _initialize_memory(self, X, y):
+        _, PATHS = load_paths()
+        proto_dir = os.path.join(PATHS["class_prototypes"], f"K{self.K_init}")
+
+        y_binary = ensure_binary(y)
+        generate_prototypes(
+            X=X,
+            y=y_binary,
+            K=self.K_init,
+            output_dir=proto_dir,
+            seed =42,
+        )
+
+        class_states = []
+        for cls in [0, 1]:
+            for i in range(self.K_init):
+                vec = np.load(
+                    os.path.join(proto_dir, f"class{cls}_proto{i}.npy")
+                )
+                class_states.append(
+                    ClassState(vec, backend=self.backend)
+                )
+
+        self.memory_bank = MemoryBank(class_states)
+
+    def fit(self, X, y):
+        # -------------------------------------------------
+        # Step 1 — initialize memory
+        # -------------------------------------------------
+        y = ensure_polar(y)
+        self._initialize_memory(X, y)
+
+        # -------------------------------------------------
+        # Step 2 — adaptive growth + pruning (Regime-3C)
+        # -------------------------------------------------
+        self.regime3c = AdaptiveMemory(
+            memory_bank=self.memory_bank,
+            eta=self.eta,
+            percentile=self.percentile,
+            backend=self.backend,
+        )
+        self.regime3c.fit(X, y)
+
+        # -------------------------------------------------
+        # Step 3 — optional consolidation (Regime-3A)
+        # -------------------------------------------------
+        if self.consolidate:
+            consolidator = WinnerTakeAll(
+                memory_bank=self.memory_bank,
+                eta=self.eta,
+                backend=self.backend,
+            )
+            consolidator.fit(X, y)
+
+        # -------------------------------------------------
+        # Step 4 — freeze & inference
+        # -------------------------------------------------
+        self.classifier = WeightedVoteClassifier(self.memory_bank)
+        return self
+
+    def predict(self, X):
+        if self.classifier is None:
+            raise RuntimeError("Model not trained.")
+        return [self.classifier.predict(x) for x in X]
+
+```
+
+## File: src/IQL/models/__init__.py
+
+```py
+
+```
+
 ## File: src/IQL/learning/class_state.py
 
 ```py
@@ -463,64 +760,48 @@ import os
 import numpy as np
 from sklearn.cluster import KMeans
 
-from src.utils.paths import load_paths
 from src.utils.seed import set_seed
 
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
 
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-PROTO_BASE = PATHS["class_prototypes"]
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-os.makedirs(PROTO_BASE, exist_ok=True)
-
-# ----------------------------
-# Load embeddings (TRAIN ONLY)
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-K_VALUES = PATHS["class_count"]["K_values"]
-# ----------------------------
-# Helper: quantum-safe normalize
-# ----------------------------
+# -------------------------------------------------
+# Helper: quantum-safe normalization
+# -------------------------------------------------
 def to_quantum_state(x):
     x = np.asarray(x, dtype=np.float64).reshape(-1)
     x = x / np.sqrt(np.sum(x ** 2))
     assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
     return x
 
-# ----------------------------
-# K-sweep prototype generation
-# ----------------------------
 
-for K in K_VALUES:
-    print(f"\n=== Computing prototypes for K={K} ===")
+# -------------------------------------------------
+# Core function (IMPORTABLE)
+# -------------------------------------------------
+def generate_prototypes(X, y, K, output_dir, seed=42):
+    """
+    Generate K prototypes per class using KMeans clustering.
 
-    CLASS_DIR = os.path.join(PROTO_BASE, f"K{K}")
-    os.makedirs(CLASS_DIR, exist_ok=True)
+    Args:
+        X (np.ndarray): embeddings, shape (N, D)
+        y (np.ndarray): labels in {0,1}
+        K (int): number of prototypes per class
+        output_dir (str): directory to save prototypes
+        seed (int): random seed
+    """
+    set_seed(seed)
+    os.makedirs(output_dir, exist_ok=True)
 
     for cls in [0, 1]:
-        X_cls = X_train[y_train == cls].astype(np.float64)
+        X_cls = X[y == cls].astype(np.float64)
 
-        print(f"Clustering class {cls} with {len(X_cls)} samples")
+        if len(X_cls) < K:
+            raise ValueError(
+                f"Not enough samples for class {cls}: "
+                f"{len(X_cls)} < K={K}"
+            )
 
         kmeans = KMeans(
             n_clusters=K,
-            random_state=42,
+            random_state=seed,
             n_init=10
         )
         kmeans.fit(X_cls)
@@ -529,9 +810,50 @@ for K in K_VALUES:
 
         for i in range(K):
             proto = to_quantum_state(centers[i])
-            path = os.path.join(CLASS_DIR, f"class{cls}_proto{i}.npy")
+            path = os.path.join(output_dir, f"class{cls}_proto{i}.npy")
             np.save(path, proto)
-            print(f"Saved {path}")
+
+
+# -------------------------------------------------
+# Script mode (EXPERIMENTS ONLY)
+# -------------------------------------------------
+if __name__ == "__main__":
+    from src.utils.paths import load_paths
+
+    # Reproducibility
+    set_seed(42)
+
+    # Load paths
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+    PROTO_BASE = PATHS["class_prototypes"]
+
+    os.makedirs(EMBED_DIR, exist_ok=True)
+    os.makedirs(PROTO_BASE, exist_ok=True)
+
+    # Load embeddings (TRAIN ONLY)
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+    X_train = X[train_idx]
+    y_train = y[train_idx]
+
+    print("Loaded train embeddings:", X_train.shape)
+
+    K_VALUES = PATHS["class_count"]["K_values"]
+
+    for K in K_VALUES:
+        print(f"\n=== Computing prototypes for K={K} ===")
+        CLASS_DIR = os.path.join(PROTO_BASE, f"K{K}")
+        generate_prototypes(
+            X=X_train,
+            y=y_train,
+            K=K,
+            output_dir=CLASS_DIR,
+            seed=42
+        )
+        print(f"Saved prototypes to {CLASS_DIR}")
 
 ```
 
@@ -1598,6 +1920,76 @@ def set_seed(seed: int = 42):
 
 ```
 
+## File: src/utils/label_utils.py
+
+```py
+# src/utils/label_utils.py
+"""
+Unified label conversion utilities for quantum classifier.
+
+Standard convention:
+- Binary: {0, 1} for storage and classical models
+- Polar: {-1, +1} for quantum interference calculations
+"""
+import numpy as np
+
+def binary_to_polar(labels):
+    """
+    Convert binary labels {0, 1} to polar {-1, +1}.
+    
+    Args:
+        labels: array-like with values in {0, 1}
+    
+    Returns:
+        numpy array with values in {-1, +1}
+    """
+    labels = np.asarray(labels)
+    return 2 * labels - 1
+
+def polar_to_binary(labels):
+    """
+    Convert polar labels {-1, +1} to binary {0, 1}.
+    
+    Args:
+        labels: array-like with values in {-1, +1}
+    
+    Returns:
+        numpy array with values in {0, 1}
+    """
+    labels = np.asarray(labels)
+    return (labels + 1) // 2
+
+def ensure_polar(labels):
+    """
+    Ensure labels are in polar format {-1, +1}.
+    Automatically detects format and converts if needed.
+    """
+    labels = np.asarray(labels)
+    unique_vals = np.unique(labels)
+    
+    if set(unique_vals).issubset({0, 1}):
+        return binary_to_polar(labels)
+    elif set(unique_vals).issubset({-1, 1}):
+        return labels
+    else:
+        raise ValueError(f"Labels must be binary {{0,1}} or polar {{-1,+1}}. Got: {unique_vals}")
+
+def ensure_binary(labels):
+    """
+    Ensure labels are in binary format {0, 1}.
+    Automatically detects format and converts if needed.
+    """
+    labels = np.asarray(labels)
+    unique_vals = np.unique(labels)
+    
+    if set(unique_vals).issubset({0, 1}):
+        return labels
+    elif set(unique_vals).issubset({-1, 1}):
+        return polar_to_binary(labels)
+    else:
+        raise ValueError(f"Labels must be binary {{0,1}} or polar {{-1,+1}}. Got: {unique_vals}")
+```
+
 ## File: src/utils/__init__.py
 
 ```py
@@ -1822,6 +2214,63 @@ print("QSVM kernel computation complete.")
 
 ```
 
+## File: src/training/test_adaptive_iqc.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.IQL.models.adaptive_iqc import AdaptiveIQC
+from src.utils.paths import load_paths
+
+
+def main():
+    # -------------------------------------------------
+    # Load data
+    # -------------------------------------------------
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))  # ±1
+
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
+
+    # quantum-safe normalization
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # -------------------------------------------------
+    # Train AdaptiveIQC
+    # -------------------------------------------------
+    model = AdaptiveIQC(
+        K_init=3,
+        eta=0.1,
+        percentile=5,
+        consolidate=True,
+    )
+
+    model.fit(X_train, y_train)
+
+    # -------------------------------------------------
+    # Evaluate
+    # -------------------------------------------------
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+
+    print("✅ AdaptiveIQC Test Accuracy:", round(acc, 4))
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
 ## File: src/training/verify_consistency.py
 
 ```py
@@ -1892,7 +2341,8 @@ from sklearn.svm import SVC
 from src.utils.paths import load_paths
 from src.IQL.interference.exact_backend import ExactBackend
 from src.IQL.interference.transition_backend import TransitionBackend
-from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
+from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
+
 
 # -------------------------------------------------
 # Config
@@ -2065,6 +2515,60 @@ for k, v in results.items():
 
 ```
 
+## File: src/training/test_fixed_memory_iqc.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+
+
+def main():
+    # -------------------------------------------------
+    # Load paths
+    # -------------------------------------------------
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+
+    # -------------------------------------------------
+    # Load embeddings and labels (polar)
+    # -------------------------------------------------
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))  # ±1
+
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
+
+    # -------------------------------------------------
+    # Quantum-safe normalization (defensive)
+    # -------------------------------------------------
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # -------------------------------------------------
+    # Train Fixed-Memory IQC
+    # -------------------------------------------------
+    K = 5
+    model = FixedMemoryIQC(K=K, eta=0.1)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+
+    print(f"✅ FixedMemoryIQC | K={K} | Test Accuracy: {acc:.4f}")
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
 ## File: src/training/validate_backends.py
 
 ```py
@@ -2191,6 +2695,284 @@ PrimeB rank correlation with Exact: -0.004
 """
 ```
 
+## File: src/training/test_static_isdo_model.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.IQL.models.static_isdo_model import StaticISDOModel
+
+def main():
+    # -------------------------------------------------
+    # Load paths
+    # -------------------------------------------------
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+
+    # -------------------------------------------------
+    # Load embeddings and labels
+    # -------------------------------------------------
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))  # {0,1}
+
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+    
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
+
+    # -------------------------------------------------
+    # Sanity: ensure quantum-safe normalization
+    # -------------------------------------------------
+    X_train = X_train / np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test = X_test / np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # -------------------------------------------------
+    # Run Static ISDO Model
+    # -------------------------------------------------
+    K = 5  # best K from sweep
+    model = StaticISDOModel(K=K)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+
+    acc = accuracy_score(y_test, y_pred)
+    print(f"✅ StaticISDOModel | K={K} | Test Accuracy: {acc:.4f}")
+
+if __name__ == "__main__":
+    main()
+
+```
+
+## File: src/training/test_core_functionality.py
+
+```py
+# tests/test_core_functionality.py
+"""
+Comprehensive test suite for quantum classifier core functionality.
+Run with: python -m pytest tests/test_core_functionality.py -v
+"""
+import pytest
+import numpy as np
+from src.IQL.learning.class_state import ClassState
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.regimes.regime2_online import OnlinePerceptron
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+from src.utils.label_utils import binary_to_polar, polar_to_binary, ensure_polar
+
+class TestLabelConversions:
+    """Test label conversion utilities."""
+    
+    def test_binary_to_polar(self):
+        binary = np.array([0, 1, 0, 1])
+        polar = binary_to_polar(binary)
+        expected = np.array([-1, 1, -1, 1])
+        np.testing.assert_array_equal(polar, expected)
+    
+    def test_polar_to_binary(self):
+        polar = np.array([-1, 1, -1, 1])
+        binary = polar_to_binary(polar)
+        expected = np.array([0, 1, 0, 1])
+        np.testing.assert_array_equal(binary, expected)
+    
+    def test_round_trip(self):
+        binary = np.array([0, 1, 0, 1])
+        polar = binary_to_polar(binary)
+        back_to_binary = polar_to_binary(polar)
+        np.testing.assert_array_equal(binary, back_to_binary)
+    
+    def test_ensure_polar_from_binary(self):
+        binary = np.array([0, 1])
+        polar = ensure_polar(binary)
+        np.testing.assert_array_equal(polar, np.array([-1, 1]))
+    
+    def test_ensure_polar_from_polar(self):
+        polar = np.array([-1, 1])
+        result = ensure_polar(polar)
+        np.testing.assert_array_equal(result, polar)
+
+class TestClassState:
+    """Test ClassState functionality."""
+    
+    def test_initialization(self):
+        backend = ExactBackend()
+        vec = np.array([1, 0, 0, 0], dtype=np.complex128)
+        cs = ClassState(vec, backend, label=1)
+        
+        assert cs.label == 1
+        assert np.isclose(np.linalg.norm(cs.vector), 1.0)
+    
+    def test_normalization(self):
+        backend = ExactBackend()
+        vec = np.array([3, 4, 0, 0], dtype=np.complex128)
+        cs = ClassState(vec, backend)
+        
+        # Should be normalized
+        assert np.isclose(np.linalg.norm(cs.vector), 1.0)
+    
+    def test_score_orthogonal(self):
+        backend = ExactBackend()
+        chi = np.array([1, 0, 0, 0], dtype=np.complex128)
+        psi = np.array([0, 1, 0, 0], dtype=np.complex128)
+        
+        cs = ClassState(chi, backend)
+        score = cs.score(psi)
+        
+        assert np.isclose(score, 0.0, atol=1e-10)
+    
+    def test_score_parallel(self):
+        backend = ExactBackend()
+        vec = np.array([1, 0, 0, 0], dtype=np.complex128)
+        
+        cs = ClassState(vec, backend)
+        score = cs.score(vec)
+        
+        assert np.isclose(score, 1.0, atol=1e-10)
+
+class TestMemoryBank:
+    """Test MemoryBank functionality."""
+    
+    def test_initialization(self):
+        backend = ExactBackend()
+        cs1 = ClassState(np.array([1, 0, 0, 0], dtype=np.complex128), backend, label=0)
+        cs2 = ClassState(np.array([0, 1, 0, 0], dtype=np.complex128), backend, label=1)
+        
+        mb = MemoryBank([cs1, cs2])
+        assert len(mb.class_states) == 2
+    
+    def test_add_memory(self):
+        backend = ExactBackend()
+        cs = ClassState(np.array([1, 0, 0, 0], dtype=np.complex128), backend)
+        mb = MemoryBank([cs])
+        
+        new_vec = np.array([0, 1, 0, 0], dtype=np.complex128)
+        mb.add_memory(new_vec, backend, label=1)
+        
+        assert len(mb.class_states) == 2
+        assert mb.class_states[1].label == 1
+    
+    def test_remove_memory(self):
+        backend = ExactBackend()
+        cs1 = ClassState(np.array([1, 0, 0, 0], dtype=np.complex128), backend)
+        cs2 = ClassState(np.array([0, 1, 0, 0], dtype=np.complex128), backend)
+        cs3 = ClassState(np.array([0, 0, 1, 0], dtype=np.complex128), backend)
+        
+        mb = MemoryBank([cs1, cs2, cs3])
+        mb.remove(1)
+        
+        assert len(mb.class_states) == 2
+    
+    def test_winner(self):
+        backend = ExactBackend()
+        cs1 = ClassState(np.array([1, 0, 0, 0], dtype=np.complex128), backend)
+        cs2 = ClassState(np.array([0, 1, 0, 0], dtype=np.complex128), backend)
+        
+        mb = MemoryBank([cs1, cs2])
+        
+        # Test with state close to cs1
+        psi = np.array([0.9, 0.1, 0, 0], dtype=np.complex128)
+        psi /= np.linalg.norm(psi)
+        
+        idx, score = mb.winner(psi)
+        assert idx == 0  # Should select cs1
+
+class TestOnlinePerceptron:
+    """Test OnlinePerceptron regime."""
+    
+    def test_training_convergence(self):
+        backend = ExactBackend()
+        
+        # Simple linearly separable data
+        X = np.array([
+            [1, 0, 0, 0],
+            [0.9, 0.1, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0.9, 0.1, 0],
+        ], dtype=np.complex128)
+        
+        y = np.array([1, 1, -1, -1])
+        
+        # Initialize with random state
+        chi0 = np.array([0.5, 0.5, 0, 0], dtype=np.complex128)
+        chi0 /= np.linalg.norm(chi0)
+        
+        cs = ClassState(chi0, backend)
+        trainer = OnlinePerceptron(cs, eta=0.1)
+        
+        acc = trainer.fit(X, y)
+        
+        # Should achieve reasonable accuracy on this simple problem
+        assert acc >= 0.5
+    
+    def test_save_load(self):
+        import tempfile
+        import os
+        
+        backend = ExactBackend()
+        chi = np.array([1, 0, 0, 0], dtype=np.complex128)
+        cs = ClassState(chi, backend)
+        trainer = OnlinePerceptron(cs, eta=0.1)
+        
+        # Train a bit
+        X = np.array([[1, 0, 0, 0], [0, 1, 0, 0]], dtype=np.complex128)
+        y = np.array([1, -1])
+        trainer.fit(X, y)
+        
+        # Save
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as f:
+            temp_path = f.name
+        
+        try:
+            trainer.save(temp_path)
+            
+            # Load
+            loaded_trainer = OnlinePerceptron.load(temp_path)
+            
+            # Check attributes
+            assert loaded_trainer.eta == trainer.eta
+            assert loaded_trainer.num_updates == trainer.num_updates
+            assert len(loaded_trainer.history["scores"]) == len(trainer.history["scores"])
+        finally:
+            os.unlink(temp_path)
+
+def test_integration():
+    """Integration test for full pipeline."""
+    from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+    
+    backend = ExactBackend()
+    
+    # Create simple data
+    X = np.array([
+        [1, 0, 0, 0],
+        [0.9, 0.1, 0, 0],
+        [0, 1, 0, 0],
+        [0.1, 0.9, 0, 0],
+    ], dtype=np.complex128)
+    y = np.array([1, 1, -1, -1])
+    
+    # Initialize memory bank
+    cs1 = ClassState(np.array([1, 0, 0, 0], dtype=np.complex128), backend, label=1)
+    cs2 = ClassState(np.array([0, 1, 0, 0], dtype=np.complex128), backend, label=-1)
+    mb = MemoryBank([cs1, cs2])
+    
+    # Train with WTA
+    wta = WinnerTakeAll(mb, eta=0.1, backend=backend)
+    acc = wta.fit(X, y)
+    
+    # Predict
+    predictions = wta.predict(X)
+    
+    assert len(predictions) == len(X)
+    assert acc >= 0.5  # Should do reasonably well
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+```
+
 ## File: src/training/compare_iqc_algorithms.py
 
 ```py
@@ -2199,7 +2981,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 
 from src.utils.paths import load_paths
-from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
+from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
 from src.IQL.training.online_perceptron_trainer import OnlinePerceptronTrainer
 from src.IQL.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
 from src.IQL.states.class_state import ClassState
