@@ -96,8 +96,6 @@ class OnlinePerceptron:
 
         # restore training statistics
         obj.num_updates = payload["num_updates"]
-        obj.num_mistakes = payload["num_mistakes"]
-        obj.margin_history = payload["margin_history"]
         obj.history = payload["history"]
 
         return obj
