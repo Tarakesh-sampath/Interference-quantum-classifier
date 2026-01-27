@@ -5,7 +5,7 @@ EXCLUDE_DIRS = {
     'Documents', 
     'measurement_free_quantum_classifier.egg-info', 
     'status_reports', 
-    #'results',
+    'results',
     '.git',
     '.venv',
     '__pycache__',
