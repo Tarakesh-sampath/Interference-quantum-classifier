@@ -2720,7 +2720,8 @@ class ClassState:
 ## File: src/IQC/training/winner_take_all_trainer.py
 
 ```py
-from ..learning.perceptron_update import perceptron_update
+from src.IQC.learning.perceptron_update import perceptron_update
+import pickle
 
 class WinnerTakeAllTrainer:
     """
@@ -2775,6 +2776,41 @@ class WinnerTakeAllTrainer:
     
     def predict(self, X):
         return [self.predict_one(x) for x in X]
+    
+    def save(self, path):
+        """
+        Save trained memory bank and history.
+        """
+        payload = {
+            "memory_bank": self.memory_bank,
+            "eta": self.eta,
+            "num_updates": self.num_updates,
+            "winner_indices": self.winner_indices,
+            "history": self.history,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a trained Winner-Take-All model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            memory_bank=payload["memory_bank"],
+            eta=payload["eta"],
+        )
+
+        # restore training statistics
+        obj.num_updates = payload["num_updates"]
+        obj.winner_indices = payload["winner_indices"]
+        obj.history = payload["history"]
+
+        return obj
 ```
 
 ## File: src/IQC/training/adaptive_memory_trainer.py
@@ -2782,7 +2818,8 @@ class WinnerTakeAllTrainer:
 ```py
 import numpy as np
 from collections import deque
-from ..learning.perceptron_update import perceptron_update
+from src.IQC.learning.perceptron_update import perceptron_update
+import pickle
 
 class AdaptiveMemoryTrainer:
     """
@@ -2873,16 +2910,58 @@ class AdaptiveMemoryTrainer:
     
     def predict(self, X):
         return [self.predict_one(x) for x in X]
+        
+    def save(self, path):
+        """
+        Save trained memory + training history.
+        """
+        payload = {
+            "memory_bank": self.memory_bank,
+            "eta": self.eta,
+            "percentile": self.percentile,
+            "tau_abs": self.tau_abs,
+            "margins": list(self.margins),
+            "num_updates": self.num_updates,
+            "num_spawns": self.num_spawns,
+            "history": self.history,
+        }
 
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a previously trained Regime-3C model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            memory_bank=payload["memory_bank"],
+            eta=payload["eta"],
+            percentile=payload["percentile"],
+            tau_abs=payload["tau_abs"],
+            margin_window=len(payload["margins"]),
+        )
+
+        # restore training state
+        from collections import deque
+        obj.margins = deque(payload["margins"], maxlen=len(payload["margins"]))
+        obj.num_updates = payload["num_updates"]
+        obj.num_spawns = payload["num_spawns"]
+        obj.history = payload["history"]
+
+        return obj
 ```
 
 ## File: src/IQC/training/online_perceptron_trainer.py
 
 ```py
 import numpy as np
-from ..learning.perceptron_update import perceptron_update
+from src.IQC.learning.perceptron_update import perceptron_update
 from src.ISDO.observables.isdo import isdo_observable
-
+import pickle
 
 class OnlinePerceptronTrainer:
     """
@@ -2951,6 +3030,42 @@ class OnlinePerceptronTrainer:
     def predict(self, X):
         return [self.predict_one(x) for x in X]
 
+    def save(self, path):
+        """
+        Save trained perceptron state and history.
+        """
+        payload = {
+            "class_state": self.class_state,   # or self.chi
+            "eta": self.eta,
+            "num_updates": self.num_updates,
+            "num_mistakes": self.num_mistakes,
+            "margin_history": self.margin_history,
+            "history": self.history,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a trained perceptron model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            class_state=payload["class_state"],
+            eta=payload["eta"],
+        )
+
+        # restore training statistics
+        obj.num_updates = payload["num_updates"]
+        obj.num_mistakes = payload["num_mistakes"]
+        obj.margin_history = payload["margin_history"]
+        obj.history = payload["history"]
+
+        return obj
 ```
 
 ## File: src/IQC/training/metrics.py

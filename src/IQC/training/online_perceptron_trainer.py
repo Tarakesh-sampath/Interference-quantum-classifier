@@ -1,7 +1,7 @@
 import numpy as np
-from ..learning.perceptron_update import perceptron_update
+from src.IQC.learning.perceptron_update import perceptron_update
 from src.ISDO.observables.isdo import isdo_observable
-
+import pickle
 
 class OnlinePerceptronTrainer:
     """
@@ -69,3 +69,40 @@ class OnlinePerceptronTrainer:
     
     def predict(self, X):
         return [self.predict_one(x) for x in X]
+
+    def save(self, path):
+        """
+        Save trained perceptron state and history.
+        """
+        payload = {
+            "class_state": self.class_state,   # or self.chi
+            "eta": self.eta,
+            "num_updates": self.num_updates,
+            "num_mistakes": self.num_mistakes,
+            "margin_history": self.margin_history,
+            "history": self.history,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a trained perceptron model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            class_state=payload["class_state"],
+            eta=payload["eta"],
+        )
+
+        # restore training statistics
+        obj.num_updates = payload["num_updates"]
+        obj.num_mistakes = payload["num_mistakes"]
+        obj.margin_history = payload["margin_history"]
+        obj.history = payload["history"]
+
+        return obj

@@ -1,4 +1,5 @@
-from ..learning.perceptron_update import perceptron_update
+from src.IQC.learning.perceptron_update import perceptron_update
+import pickle
 
 class WinnerTakeAllTrainer:
     """
@@ -53,3 +54,38 @@ class WinnerTakeAllTrainer:
     
     def predict(self, X):
         return [self.predict_one(x) for x in X]
+    
+    def save(self, path):
+        """
+        Save trained memory bank and history.
+        """
+        payload = {
+            "memory_bank": self.memory_bank,
+            "eta": self.eta,
+            "num_updates": self.num_updates,
+            "winner_indices": self.winner_indices,
+            "history": self.history,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a trained Winner-Take-All model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            memory_bank=payload["memory_bank"],
+            eta=payload["eta"],
+        )
+
+        # restore training statistics
+        obj.num_updates = payload["num_updates"]
+        obj.winner_indices = payload["winner_indices"]
+        obj.history = payload["history"]
+
+        return obj

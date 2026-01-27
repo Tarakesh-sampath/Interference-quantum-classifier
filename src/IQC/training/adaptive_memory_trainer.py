@@ -1,6 +1,7 @@
 import numpy as np
 from collections import deque
-from ..learning.perceptron_update import perceptron_update
+from src.IQC.learning.perceptron_update import perceptron_update
+import pickle
 
 class AdaptiveMemoryTrainer:
     """
@@ -91,3 +92,46 @@ class AdaptiveMemoryTrainer:
     
     def predict(self, X):
         return [self.predict_one(x) for x in X]
+        
+    def save(self, path):
+        """
+        Save trained memory + training history.
+        """
+        payload = {
+            "memory_bank": self.memory_bank,
+            "eta": self.eta,
+            "percentile": self.percentile,
+            "tau_abs": self.tau_abs,
+            "margins": list(self.margins),
+            "num_updates": self.num_updates,
+            "num_spawns": self.num_spawns,
+            "history": self.history,
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load a previously trained Regime-3C model.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            memory_bank=payload["memory_bank"],
+            eta=payload["eta"],
+            percentile=payload["percentile"],
+            tau_abs=payload["tau_abs"],
+            margin_window=len(payload["margins"]),
+        )
+
+        # restore training state
+        from collections import deque
+        obj.margins = deque(payload["margins"], maxlen=len(payload["margins"]))
+        obj.num_updates = payload["num_updates"]
+        obj.num_spawns = payload["num_spawns"]
+        obj.history = payload["history"]
+
+        return obj
