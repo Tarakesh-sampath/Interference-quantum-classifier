@@ -47,17 +47,25 @@ class OnlinePerceptronTrainer:
 
         return y_hat, s, updated
 
-    def train(self, dataset):
+    def fit(self, X, y):
         """
         Single-pass online training.
         dataset: iterable of (psi, y)
         """
         correct = 0
 
-        for psi, y in dataset:
-            y_hat, _, _ = self.step(psi, y)
-            if y_hat == y:
+        for i in range(len(X)):
+            y_hat, _, _ = self.step(X[i], y[i])
+            if y_hat == y[i]:
                 correct += 1
 
-        accuracy = correct / len(dataset)
+        accuracy = correct / len(X)
         return accuracy
+    
+    def predict_one(self, X):
+        chi_vec = self.class_state.vector
+        s = isdo_observable(chi_vec, X)
+        return 1 if s >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]

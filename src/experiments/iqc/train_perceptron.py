@@ -37,21 +37,15 @@ print("Loaded train embeddings:", X_train.shape)
 
 def main():
 
-    dataset = [
-        (embedding_to_state(x), int(label))
-        for x, label in zip(X_train, y_train)
-    ]
-
-    # bootstrap initialization (important!)
-    chi0 = np.zeros_like(dataset[0][0])
-    for psi, label in dataset[:10]:
+    chi0 = np.zeros_like(X_train[0])
+    for psi, label in zip(X_train[:10], y_train[:10]):
         chi0 += label * psi
     chi0 = chi0 / np.linalg.norm(chi0)
 
     class_state = ClassState(chi0)
     trainer = OnlinePerceptronTrainer(class_state, eta=0.1)
 
-    acc = trainer.train(dataset)
+    acc = trainer.fit(X_train,y_train)
     stats = summarize_training(trainer.history)
 
     print("Final accuracy:", acc)

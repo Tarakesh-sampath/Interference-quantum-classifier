@@ -46,23 +46,9 @@ print("Loaded train embeddings:", X_train.shape)
 
 
 # -------------------------------------------------
-# Prepare dataset (same as Regime 2 / 3-A / 3-B)
-# -------------------------------------------------
-dataset = [
-    (embedding_to_state(x), int(label))
-    for x, label in zip(X_train, y_train)
-]
-
-# shuffle (important for online + growth)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-
-# -------------------------------------------------
 # Initialize memory bank (M = 3)
 # -------------------------------------------------
-d = dataset[0][0].shape[0]
+d = X_train[0].shape[0]
 
 class_states = []
 for _ in range(3):
@@ -92,7 +78,7 @@ trainer = AdaptiveMemoryTrainer(
     margin_window=500   # sliding window for stability
 )
 
-trainer.train(dataset)
+trainer.fit(X_train, y_train)
 
 print("Training finished.")
 print("Number of memories after training:", len(memory_bank.class_states))
@@ -106,11 +92,11 @@ print("Number of updates:", trainer.num_updates)
 classifier = WeightedVoteClassifier(memory_bank)
 
 correct = 0
-for psi, y in dataset:
+for psi, y in zip(X_train, y_train):
     if classifier.predict(psi) == y:
         correct += 1
 
-acc_3c = correct / len(dataset)
+acc_3c = correct / len(X_train)
 print("Regime 3-C accuracy (3-B inference):", acc_3c)
 
 

@@ -77,8 +77,17 @@ class AdaptiveMemoryTrainer:
         self.history["num_memories"].append(len(self.memory_bank.class_states))
 
         return margin, spawned
+    
+    def memory_size(self):
+        return len(self.memory_bank.class_states)
 
-
-    def train(self, dataset):
-        for psi, y in dataset:
+    def fit(self, X, y):
+        for psi, y in zip(X, y):
             self.step(psi, y)
+
+    def predict_one(self, X):
+        _, score = self.memory_bank.winner(X)
+        return 1 if score >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]

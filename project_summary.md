@@ -37,7 +37,10 @@ measurement-free-quantum-classifier/
             __init__.py
         experiments/
             run_final_comparison.py
+            compare_best_iqc_vs_classical.py
+            validate_backends.py
             __init__.py
+            compare_iqc_algorithms.py
             iqc/
                 consolidate_memory.py
                 train_perceptron.py
@@ -97,6 +100,10 @@ measurement-free-quantum-classifier/
             swap_test_classifier.py
             evaluate_swap_test_batch.py
             __init__.py
+            statevector_similarity/
+                compute_class_states.py
+                evaluate_statevector_similarity.py
+                __init__.py
         quantum/
             __init__.py
             isdo/
@@ -110,10 +117,6 @@ measurement-free-quantum-classifier/
                 circuit/
                     circuit_a_controlled_state.py
                     __init__.py
-        statevector_similarity/
-            compute_class_states.py
-            evaluate_statevector_similarity.py
-            __init__.py
         rfc/
             reflection_classifier.py
             __init__.py
@@ -1193,7 +1196,7 @@ for psi in tqdm(X_test, desc="IQC Exact"):
     s = exact_backend.score(chi=chi_single, psi=psi)
     y_pred_exact.append(1 if s >= 0 else -1)
 
-results["IQC_Exact"] = accuracy_score(y_test, y_pred_exact)
+results["IQC_Exact_Backend"] = accuracy_score(y_test, y_pred_exact)
 
 # =================================================
 # IQC – Transition (circuit B′)
@@ -1206,7 +1209,7 @@ for psi in tqdm(X_test, desc="IQC Transition"):
     s = transition_backend.score(chi=chi_single, psi=psi)
     y_pred_transition.append(1 if s >= 0 else -1)
 
-results["IQC_Transition"] = accuracy_score(y_test, y_pred_transition)
+results["IQC_Transition_Backend"] = accuracy_score(y_test, y_pred_transition)
 
 # =================================================
 # ISDO – K-prototype interference ( Exact )
@@ -1267,10 +1270,217 @@ for k, v in results.items():
 
 ```
 
+## File: src/experiments/compare_best_iqc_vs_classical.py
+
+```py
+import os
+import json
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
+
+# -----------------------------
+# Load paths
+# -----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+LOG_DIR   = PATHS["logs"]
+
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X_train, y_train = X[train_idx], y[train_idx]
+X_test,  y_test  = X[test_idx],  y[test_idx]
+
+X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+X_test  /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+results = {}
+
+# -----------------------------
+# Best IQC
+# -----------------------------
+adaptive = AdaptiveMemoryTrainer()
+adaptive.fit(X_train, y_train)
+results["IQC_Adaptive"] = accuracy_score(
+    y_test, adaptive.predict(X_test)
+)
+
+# -----------------------------
+# Classical baselines (from logs)
+# -----------------------------
+with open(os.path.join(LOG_DIR, "embedding_baseline_results.json")) as f:
+    classical = json.load(f)
+
+for k, v in classical.items():
+    results[k] = v["accuracy"]
+
+print("\n=== Best IQC vs Classical ===")
+for k, v in results.items():
+    print(f"{k:25s}: {v}")
+
+```
+
+## File: src/experiments/validate_backends.py
+
+```py
+import numpy as np
+from tqdm import tqdm
+
+from src.IQC.interference.exact_backend import ExactBackend
+from src.IQC.interference.transition_backend import TransitionBackend
+from src.IQC.interference.oracle_backend import OracleBackend
+
+NUM_TRIALS = 200
+
+exact = ExactBackend()
+transition = TransitionBackend()
+hadamard = OracleBackend()
+
+sign_match_et = 0
+sign_match_eh = 0
+
+err_et = []
+err_eh = []
+
+for _ in tqdm(range(NUM_TRIALS), desc="Validating backends"):
+    chi = np.random.randn(32)
+    psi = np.random.randn(32)
+
+    chi /= np.linalg.norm(chi)
+    psi /= np.linalg.norm(psi)
+
+    s_exact = exact.score(chi, psi)
+    s_trans = transition.score(chi, psi)
+    s_hadam = hadamard.score(chi, psi)
+
+    sign_match_et += int(np.sign(s_exact) == np.sign(s_trans))
+    sign_match_eh += int(np.sign(s_exact) == np.sign(s_hadam))
+
+    err_et.append(abs(s_exact - s_trans))
+    err_eh.append(abs(s_exact - s_hadam))
+
+print("\n=== Backend Validation ===")
+print(f"Exact vs Transition sign agreement : {sign_match_et}/{NUM_TRIALS}")
+print(f"Exact vs Hadamard   sign agreement : {sign_match_eh}/{NUM_TRIALS}")
+print(f"Mean |Exact - Transition| : {np.mean(err_et):.3e}")
+print(f"Mean |Exact - Hadamard|   : {np.mean(err_eh):.3e}")
+
+## output 
+"""
+Validating backends: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 200/200 [08:56<00:00,  2.68s/it]
+
+=== Backend Validation ===
+Exact vs Transition sign agreement : 200/200
+Exact vs Hadamard   sign agreement : 200/200
+Mean |Exact - Transition| : 1.991e-13
+Mean |Exact - Hadamard|   : 2.001e-16
+"""
+```
+
 ## File: src/experiments/__init__.py
 
 ```py
 
+```
+
+## File: src/experiments/compare_iqc_algorithms.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
+from src.IQC.training.online_perceptron_trainer import OnlinePerceptronTrainer
+from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
+from src.IQC.states.class_state import ClassState
+from src.IQC.memory.memory_bank import MemoryBank
+import pickle
+
+# -----------------------------
+# Load data
+# -----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+PROTO_DIR = PATHS["class_prototypes"]
+
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X_train, y_train = X[train_idx], y[train_idx]
+X_test,  y_test  = X[test_idx],  y[test_idx]
+
+X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+X_test  /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+results = {}
+
+# -----------------------------
+# Static ISDO
+# -----------------------------
+isdo = StaticISDOClassifier(PROTO_DIR, K=3)
+results["Static_ISDO"] = accuracy_score((y_test + 1)//2, isdo.predict(X_test))
+
+# -----------------------------
+# IQC-Online (Regime-2)
+# -----------------------------
+
+# bootstrap initialization (important!)
+chi0 = np.zeros_like(X_train[0])
+for psi, label in zip(X_train[:10], y_train[:10]):
+    chi0 += label * psi
+chi0 = chi0 / np.linalg.norm(chi0)
+
+class_state = ClassState(chi0)
+online = OnlinePerceptronTrainer(class_state, eta=0.1)
+online.fit(X_train, y_train)
+results["IQC_Online"] = accuracy_score(y_test, online.predict(X_test))
+
+# -----------------------------
+# IQC-Adaptive Memory (Regime-3C)
+# -----------------------------
+
+MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
+
+with open(MEMORY_PATH, "rb") as f:
+    memory_bank = pickle.load(f)
+
+adaptive = AdaptiveMemoryTrainer(
+    memory_bank=memory_bank,
+    eta=0.1,
+    percentile=5,       # τ = 5th percentile of margins
+    tau_abs = -0.121,
+    margin_window=500
+)
+adaptive.fit(X_train, y_train)
+
+results["IQC_Adaptive"] = accuracy_score(
+    y_test, adaptive.predict(X_test)
+)
+results["Adaptive_Memory_Size"] = adaptive.memory_size()
+
+print("\n=== IQC Algorithm Comparison ===")
+for k, v in results.items():
+    print(f"{k:25s}: {v}")
+
+## output
+"""                                                                                                                                                                             
+=== IQC Algorithm Comparison ===
+Static_ISDO              : 0.8806666666666667
+IQC_Online               : 0.904
+IQC_Adaptive             : 0.56
+Adaptive_Memory_Size     : 45
+""" 
 ```
 
 ## File: src/experiments/iqc/consolidate_memory.py
@@ -1314,21 +1524,6 @@ y_train = y[train_idx]
 
 print("Loaded train embeddings:", X_train.shape)
 
-
-# -------------------------------------------------
-# Prepare dataset
-# -------------------------------------------------
-dataset = [
-    (embedding_to_state(x), int(label))
-    for x, label in zip(X_train, y_train)
-]
-
-# shuffle (important for consolidation)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-
 # -------------------------------------------------
 # 🔒 LOAD MEMORY BANK FROM REGIME 3-C
 # -------------------------------------------------
@@ -1358,7 +1553,7 @@ trainer = WinnerTakeAllTrainer(
     eta=0.05      # slightly smaller eta for stabilization
 )
 
-acc_train = trainer.train(dataset)
+acc_train = trainer.fit(X_train, y_train)
 print("Consolidation pass accuracy:", acc_train)
 print("Updates during consolidation:", trainer.num_updates)
 
@@ -1369,11 +1564,11 @@ print("Updates during consolidation:", trainer.num_updates)
 classifier = WeightedVoteClassifier(memory_bank)
 
 correct = 0
-for psi, y in dataset:
-    if classifier.predict(psi) == y:
+for x, y in zip(X_train, y_train):
+    if classifier.predict(x) == y:
         correct += 1
 
-final_acc = correct / len(dataset)
+final_acc = correct / len(X_train)
 print("FINAL Regime 3-C accuracy:", final_acc)
 
 
@@ -1431,21 +1626,15 @@ print("Loaded train embeddings:", X_train.shape)
 
 def main():
 
-    dataset = [
-        (embedding_to_state(x), int(label))
-        for x, label in zip(X_train, y_train)
-    ]
-
-    # bootstrap initialization (important!)
-    chi0 = np.zeros_like(dataset[0][0])
-    for psi, label in dataset[:10]:
+    chi0 = np.zeros_like(X_train[0])
+    for psi, label in zip(X_train[:10], y_train[:10]):
         chi0 += label * psi
     chi0 = chi0 / np.linalg.norm(chi0)
 
     class_state = ClassState(chi0)
     trainer = OnlinePerceptronTrainer(class_state, eta=0.1)
 
-    acc = trainer.train(dataset)
+    acc = trainer.fit(X_train,y_train)
     stats = summarize_training(trainer.history)
 
     print("Final accuracy:", acc)
@@ -1515,23 +1704,9 @@ print("Loaded train embeddings:", X_train.shape)
 
 
 # -------------------------------------------------
-# Prepare dataset (same as Regime 2 / 3-A / 3-B)
-# -------------------------------------------------
-dataset = [
-    (embedding_to_state(x), int(label))
-    for x, label in zip(X_train, y_train)
-]
-
-# shuffle (important for online + growth)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-
-# -------------------------------------------------
 # Initialize memory bank (M = 3)
 # -------------------------------------------------
-d = dataset[0][0].shape[0]
+d = X_train[0].shape[0]
 
 class_states = []
 for _ in range(3):
@@ -1561,7 +1736,7 @@ trainer = AdaptiveMemoryTrainer(
     margin_window=500   # sliding window for stability
 )
 
-trainer.train(dataset)
+trainer.fit(X_train, y_train)
 
 print("Training finished.")
 print("Number of memories after training:", len(memory_bank.class_states))
@@ -1575,11 +1750,11 @@ print("Number of updates:", trainer.num_updates)
 classifier = WeightedVoteClassifier(memory_bank)
 
 correct = 0
-for psi, y in dataset:
+for psi, y in zip(X_train, y_train):
     if classifier.predict(psi) == y:
         correct += 1
 
-acc_3c = correct / len(dataset)
+acc_3c = correct / len(X_train)
 print("Regime 3-C accuracy (3-B inference):", acc_3c)
 
 
@@ -2585,14 +2760,21 @@ class WinnerTakeAllTrainer:
 
         return y_hat, idx, updated
 
-    def train(self, dataset):
+    def fit(self, X, y):
         correct = 0
-        for psi, y in dataset:
-            y_hat, _, _ = self.step(psi, y)
+        for x, y in zip(X, y):
+            y_hat, _, _ = self.step(x, y)
             if y_hat == y:
                 correct += 1
-        return correct / len(dataset)
+        return correct / len(X)
 
+    
+    def predict_one(self, X):
+        _, score = self.memory_bank.winner(X)
+        return 1 if score >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]
 ```
 
 ## File: src/IQC/training/adaptive_memory_trainer.py
@@ -2677,11 +2859,20 @@ class AdaptiveMemoryTrainer:
         self.history["num_memories"].append(len(self.memory_bank.class_states))
 
         return margin, spawned
+    
+    def memory_size(self):
+        return len(self.memory_bank.class_states)
 
-
-    def train(self, dataset):
-        for psi, y in dataset:
+    def fit(self, X, y):
+        for psi, y in zip(X, y):
             self.step(psi, y)
+
+    def predict_one(self, X):
+        _, score = self.memory_bank.winner(X)
+        return 1 if score >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]
 
 ```
 
@@ -2737,20 +2928,28 @@ class OnlinePerceptronTrainer:
 
         return y_hat, s, updated
 
-    def train(self, dataset):
+    def fit(self, X, y):
         """
         Single-pass online training.
         dataset: iterable of (psi, y)
         """
         correct = 0
 
-        for psi, y in dataset:
-            y_hat, _, _ = self.step(psi, y)
-            if y_hat == y:
+        for i in range(len(X)):
+            y_hat, _, _ = self.step(X[i], y[i])
+            if y_hat == y[i]:
                 correct += 1
 
-        accuracy = correct / len(dataset)
+        accuracy = correct / len(X)
         return accuracy
+    
+    def predict_one(self, X):
+        chi_vec = self.class_state.vector
+        s = isdo_observable(chi_vec, X)
+        return 1 if s >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]
 
 ```
 
@@ -3365,6 +3564,205 @@ Accuracy: 0.8784
 
 ```
 
+## File: Archive_src/swap_test/statevector_similarity/compute_class_states.py
+
+```py
+import os
+import json
+import numpy as np
+from sklearn.preprocessing import normalize
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+BASE_ROOT, PATHS = load_paths()
+
+EMBED_DIR = PATHS["embeddings"]
+SAVE_DIR = PATHS["embeddings"]
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# ----------------------------
+# Load embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+print("Loaded embeddings:", X_train.shape)
+# ----------------------------
+# Compute class means
+# ----------------------------
+class_states = {}
+
+for cls in np.unique(y):
+    X_cls = X_train[y_train == cls]
+    #X_cls = X_cls.astype(np.float64)
+
+    # Mean in FP64
+    mean_vec = X_cls.mean(axis=0)
+
+    # Exact FP64 normalization
+    norm = np.sqrt(np.sum(mean_vec ** 2))
+    mean_vec = mean_vec / norm
+
+    # Sanity check (important)
+    assert np.isclose(np.sum(mean_vec ** 2), 1.0, atol=1e-12)
+
+    class_states[int(cls)] = mean_vec
+
+    print(
+        f"Class {cls}: "
+        f"samples = {len(X_cls)}, "
+        f"norm = {np.linalg.norm(mean_vec):.12f}"
+    )
+
+# ----------------------------
+# Save
+# ----------------------------
+np.save(os.path.join(SAVE_DIR, "class_state_0.npy"), class_states[0])
+np.save(os.path.join(SAVE_DIR, "class_state_1.npy"), class_states[1])
+
+# Optional: save metadata
+with open(os.path.join(SAVE_DIR, "class_states_meta.json"), "w") as f:
+    json.dump(
+        {
+            "embedding_dim": X.shape[1],
+            "classes": list(class_states.keys()),
+            "normalization": "l2",
+            "source": "mean_of_class_embeddings",
+        },
+        f,
+        indent=2,
+    )
+
+print("\n✅ Class states saved:")
+print(" - class_state_0.npy (Benign)")
+print(" - class_state_1.npy (Malignant)")
+
+```
+
+## File: Archive_src/swap_test/statevector_similarity/evaluate_statevector_similarity.py
+
+```py
+import os
+import numpy as np
+from tqdm import tqdm
+
+from qiskit.quantum_info import Statevector
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ----------------------------
+# Reproducibility
+# ----------------------------
+set_seed(42)
+
+# ----------------------------
+# Load paths
+# ----------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+
+# ----------------------------
+# Quantum-safe conversion
+# ----------------------------
+def to_quantum_state(x):
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    n = len(x)
+    if not (n & (n - 1) == 0):
+        raise ValueError(f"State length {n} is not power of 2")
+    x = x / np.sqrt(np.sum(x ** 2))
+    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
+    return x
+
+
+# ----------------------------
+# Load class states
+# ----------------------------
+phi0 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
+)
+phi1 = to_quantum_state(
+    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
+)
+
+sv_phi0 = Statevector(phi0)
+sv_phi1 = Statevector(phi1)
+
+
+# ----------------------------
+# Load embeddings
+# ----------------------------
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X = X[test_idx]
+y = y[test_idx]
+
+N = len(X)
+correct = 0
+
+print(f"\n🔬 Evaluating measurement-free statevector classifier on {N} samples\n")
+
+for i in tqdm(range(N)):
+    psi = Statevector(to_quantum_state(X[i]))
+
+    F0 = abs(psi.inner(sv_phi0)) ** 2
+    F1 = abs(psi.inner(sv_phi1)) ** 2
+
+    pred = 0 if F0 > F1 else 1
+    if pred == y[i]:
+        correct += 1
+
+accuracy = correct / N
+
+print("\n==============================")
+print("Measurement-free (Statevector) Quantum Classifier")
+print(f"Samples: {N}")
+print(f"Accuracy: {accuracy:.4f}")
+print("==============================\n")
+
+## output
+"""
+🌱 Global seed set to 42
+
+🔬 Evaluating measurement-free statevector classifier on 1500 samples
+
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 29429.03it/s]
+
+==============================
+Measurement-free (Statevector) Quantum Classifier
+Samples: 1500
+Accuracy: 0.8827
+==============================
+"""
+```
+
+## File: Archive_src/swap_test/statevector_similarity/__init__.py
+
+```py
+
+```
+
 ## File: Archive_src/quantum/__init__.py
 
 ```py
@@ -3609,205 +4007,6 @@ def run_isdo_circuit_a(psi, chi):
 ```
 
 ## File: Archive_src/quantum/isdo/circuit/__init__.py
-
-```py
-
-```
-
-## File: Archive_src/statevector_similarity/compute_class_states.py
-
-```py
-import os
-import json
-import numpy as np
-from sklearn.preprocessing import normalize
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-BASE_ROOT, PATHS = load_paths()
-
-EMBED_DIR = PATHS["embeddings"]
-SAVE_DIR = PATHS["embeddings"]
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-
-
-
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded embeddings:", X_train.shape)
-# ----------------------------
-# Compute class means
-# ----------------------------
-class_states = {}
-
-for cls in np.unique(y):
-    X_cls = X_train[y_train == cls]
-    #X_cls = X_cls.astype(np.float64)
-
-    # Mean in FP64
-    mean_vec = X_cls.mean(axis=0)
-
-    # Exact FP64 normalization
-    norm = np.sqrt(np.sum(mean_vec ** 2))
-    mean_vec = mean_vec / norm
-
-    # Sanity check (important)
-    assert np.isclose(np.sum(mean_vec ** 2), 1.0, atol=1e-12)
-
-    class_states[int(cls)] = mean_vec
-
-    print(
-        f"Class {cls}: "
-        f"samples = {len(X_cls)}, "
-        f"norm = {np.linalg.norm(mean_vec):.12f}"
-    )
-
-# ----------------------------
-# Save
-# ----------------------------
-np.save(os.path.join(SAVE_DIR, "class_state_0.npy"), class_states[0])
-np.save(os.path.join(SAVE_DIR, "class_state_1.npy"), class_states[1])
-
-# Optional: save metadata
-with open(os.path.join(SAVE_DIR, "class_states_meta.json"), "w") as f:
-    json.dump(
-        {
-            "embedding_dim": X.shape[1],
-            "classes": list(class_states.keys()),
-            "normalization": "l2",
-            "source": "mean_of_class_embeddings",
-        },
-        f,
-        indent=2,
-    )
-
-print("\n✅ Class states saved:")
-print(" - class_state_0.npy (Benign)")
-print(" - class_state_1.npy (Malignant)")
-
-```
-
-## File: Archive_src/statevector_similarity/evaluate_statevector_similarity.py
-
-```py
-import os
-import numpy as np
-from tqdm import tqdm
-
-from qiskit.quantum_info import Statevector
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
-
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-
-# ----------------------------
-# Quantum-safe conversion
-# ----------------------------
-def to_quantum_state(x):
-    x = np.asarray(x, dtype=np.float64).reshape(-1)
-    n = len(x)
-    if not (n & (n - 1) == 0):
-        raise ValueError(f"State length {n} is not power of 2")
-    x = x / np.sqrt(np.sum(x ** 2))
-    assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
-    return x
-
-
-# ----------------------------
-# Load class states
-# ----------------------------
-phi0 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_0.npy"))
-)
-phi1 = to_quantum_state(
-    np.load(os.path.join(EMBED_DIR, "class_state_1.npy"))
-)
-
-sv_phi0 = Statevector(phi0)
-sv_phi1 = Statevector(phi1)
-
-
-# ----------------------------
-# Load embeddings
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-X = X[test_idx]
-y = y[test_idx]
-
-N = len(X)
-correct = 0
-
-print(f"\n🔬 Evaluating measurement-free statevector classifier on {N} samples\n")
-
-for i in tqdm(range(N)):
-    psi = Statevector(to_quantum_state(X[i]))
-
-    F0 = abs(psi.inner(sv_phi0)) ** 2
-    F1 = abs(psi.inner(sv_phi1)) ** 2
-
-    pred = 0 if F0 > F1 else 1
-    if pred == y[i]:
-        correct += 1
-
-accuracy = correct / N
-
-print("\n==============================")
-print("Measurement-free (Statevector) Quantum Classifier")
-print(f"Samples: {N}")
-print(f"Accuracy: {accuracy:.4f}")
-print("==============================\n")
-
-## output
-"""
-🌱 Global seed set to 42
-
-🔬 Evaluating measurement-free statevector classifier on 1500 samples
-
-100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1500/1500 [00:00<00:00, 29429.03it/s]
-
-==============================
-Measurement-free (Statevector) Quantum Classifier
-Samples: 1500
-Accuracy: 0.8827
-==============================
-"""
-```
-
-## File: Archive_src/statevector_similarity/__init__.py
 
 ```py
 

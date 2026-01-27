@@ -36,21 +36,6 @@ y_train = y[train_idx]
 
 print("Loaded train embeddings:", X_train.shape)
 
-
-# -------------------------------------------------
-# Prepare dataset
-# -------------------------------------------------
-dataset = [
-    (embedding_to_state(x), int(label))
-    for x, label in zip(X_train, y_train)
-]
-
-# shuffle (important for consolidation)
-rng = np.random.default_rng(42)
-perm = rng.permutation(len(dataset))
-dataset = [dataset[i] for i in perm]
-
-
 # -------------------------------------------------
 # 🔒 LOAD MEMORY BANK FROM REGIME 3-C
 # -------------------------------------------------
@@ -80,7 +65,7 @@ trainer = WinnerTakeAllTrainer(
     eta=0.05      # slightly smaller eta for stabilization
 )
 
-acc_train = trainer.train(dataset)
+acc_train = trainer.fit(X_train, y_train)
 print("Consolidation pass accuracy:", acc_train)
 print("Updates during consolidation:", trainer.num_updates)
 
@@ -91,11 +76,11 @@ print("Updates during consolidation:", trainer.num_updates)
 classifier = WeightedVoteClassifier(memory_bank)
 
 correct = 0
-for psi, y in dataset:
-    if classifier.predict(psi) == y:
+for x, y in zip(X_train, y_train):
+    if classifier.predict(x) == y:
         correct += 1
 
-final_acc = correct / len(dataset)
+final_acc = correct / len(X_train)
 print("FINAL Regime 3-C accuracy:", final_acc)
 
 

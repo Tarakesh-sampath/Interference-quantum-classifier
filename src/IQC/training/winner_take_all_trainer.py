@@ -38,10 +38,18 @@ class WinnerTakeAllTrainer:
 
         return y_hat, idx, updated
 
-    def train(self, dataset):
+    def fit(self, X, y):
         correct = 0
-        for psi, y in dataset:
-            y_hat, _, _ = self.step(psi, y)
+        for x, y in zip(X, y):
+            y_hat, _, _ = self.step(x, y)
             if y_hat == y:
                 correct += 1
-        return correct / len(dataset)
+        return correct / len(X)
+
+    
+    def predict_one(self, X):
+        _, score = self.memory_bank.winner(X)
+        return 1 if score >= 0 else -1
+    
+    def predict(self, X):
+        return [self.predict_one(x) for x in X]
