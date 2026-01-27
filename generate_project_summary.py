@@ -9,7 +9,8 @@ EXCLUDE_DIRS = {
     '.git',
     '.venv',
     '__pycache__',
-    'src_backup'
+    'Archive_src',
+    'research_docs',
 }
 
 EXCLUDE_EXTS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.pyc', '.o', '.a', '.so', '.exe', '.bin', '.egg-info', '.lock'}

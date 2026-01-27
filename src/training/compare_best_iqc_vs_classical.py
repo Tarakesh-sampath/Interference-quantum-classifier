@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 
 from src.utils.paths import load_paths
-from src.IQC.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
+from src.IQL.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
 
 # -----------------------------
 # Load paths
