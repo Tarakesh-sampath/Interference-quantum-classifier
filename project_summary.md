@@ -29,10 +29,14 @@ measurement-free-quantum-classifier/
             pcam_loader.py
             transforms.py
             __init__.py
+        quantum/
+            compute_qsvm_kernel.py
+            __init__.py
         classical/
             cnn.py
             __init__.py
         experiments/
+            run_final_comparison.py
             __init__.py
             iqc/
                 consolidate_memory.py
@@ -77,6 +81,7 @@ measurement-free-quantum-classifier/
             interference/
                 base.py
                 transition_backend.py
+                transition_backend_backup.py
                 exact_backend.py
                 oracle_backend.py
                 __init__.py
@@ -144,6 +149,7 @@ measurement-free-quantum-classifier/
         checkpoints/
             pcam_cnn_final.pt
             pcam_cnn_best.pt
+        qsvm_cache/
         embeddings/
             val_labels.npy
             val_labels_polar.npy
@@ -926,6 +932,148 @@ def get_eval_transforms():
 
 ```
 
+## File: src/quantum/compute_qsvm_kernel.py
+
+```py
+import os
+import json
+import numpy as np
+from tqdm import tqdm
+
+from qiskit_aer.primitives import SamplerV2
+from qiskit.circuit.library import ZZFeatureMap
+from qiskit_machine_learning.kernels import FidelityQuantumKernel
+from qiskit_algorithms.state_fidelities import ComputeUncompute
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+# ------------------------------------------------------------
+# Reproducibility
+# --------------------------------------------
+set_seed(42)
+
+# ------------------------------------------------------------
+# Load paths and data
+# ------------------------------------------------------------
+BASE_ROOT, PATHS = load_paths()
+
+EMBED_DIR = PATHS["embeddings"]
+OUT_DIR = os.path.join(BASE_ROOT, "results", "qsvm_cache")
+os.makedirs(OUT_DIR, exist_ok=True)
+
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+
+X_test = X[test_idx]
+y_test = y[test_idx]
+
+# ------------------------------------------------------------
+# SUBSAMPLING for Baseline Efficiency
+# ------------------------------------------------------------
+# Limiting to 500 samples because O(N^2) kernel computation 
+# for 3500 samples would take ~17 hours on GPU.
+MAX_TRAIN = 500000
+MAX_TEST  = 200000
+
+if len(X_train) > MAX_TRAIN:
+    print(f"Subsampling train set from {len(X_train)} to {MAX_TRAIN}...")
+    rng = np.random.default_rng(42)
+    indices = rng.choice(len(X_train), MAX_TRAIN, replace=False)
+    X_train = X_train[indices]
+    y_train = y_train[indices]
+
+if len(X_test) > MAX_TEST:
+    print(f"Subsampling test set from {len(X_test)} to {MAX_TEST}...")
+    rng = np.random.default_rng(42)
+    indices = rng.choice(len(X_test), MAX_TEST, replace=False)
+    X_test = X_test[indices]
+    y_test = y_test[indices]
+
+# ------------------------------------------------------------
+# Normalize embeddings
+# ------------------------------------------------------------
+X_train = X_train / np.linalg.norm(X_train, axis=1, keepdims=True)
+X_test  = X_test  / np.linalg.norm(X_test, axis=1, keepdims=True)
+
+# Infer number of qubits
+dim = X_train.shape[1]
+num_qubits = int(np.log2(dim))
+assert 2 ** num_qubits == dim, "Embedding dimension must be 2^n"
+
+# ------------------------------------------------------------
+# Define FIXED quantum feature map
+# ------------------------------------------------------------
+feature_map = ZZFeatureMap(
+    feature_dimension=num_qubits,
+    reps=1,
+    entanglement="linear"
+)
+
+# ------------------------------------------------------------
+# GPU Accelerated Backend (Aer SamplerV2)
+# ------------------------------------------------------------
+sampler = SamplerV2(
+    options={"backend_options": {"method": "statevector", "device": "GPU"}}
+)
+fidelity = ComputeUncompute(sampler=sampler)
+
+quantum_kernel = FidelityQuantumKernel(
+    feature_map=feature_map,
+    fidelity=fidelity
+)
+
+# ------------------------------------------------------------
+# Compute and save TRAIN kernel
+# ------------------------------------------------------------
+print(f"Computing QSVM TRAIN kernel ({len(X_train)}x{len(X_train)})...")
+K_train = quantum_kernel.evaluate(X_train, X_train)
+np.save(os.path.join(OUT_DIR, "qsvm_kernel_train.npy"), K_train)
+
+# ------------------------------------------------------------
+# Compute and save TEST kernel
+# ------------------------------------------------------------
+print(f"Computing QSVM TEST kernel ({len(X_test)}x{len(X_train)})...")
+K_test = quantum_kernel.evaluate(X_test, X_train)
+np.save(os.path.join(OUT_DIR, "qsvm_kernel_test.npy"), K_test)
+
+# ------------------------------------------------------------
+# Save Labels for verification
+# ------------------------------------------------------------
+np.save(os.path.join(OUT_DIR, "y_train_sub.npy"), y_train)
+np.save(os.path.join(OUT_DIR, "y_test_sub.npy"), y_test)
+
+# ------------------------------------------------------------
+# Save metadata
+# ------------------------------------------------------------
+meta = {
+    "model": "QSVM",
+    "num_qubits": num_qubits,
+    "num_train": int(X_train.shape[0]),
+    "num_test": int(X_test.shape[0]),
+    "embedding_dimension": int(dim),
+    "subsampling": True
+}
+
+with open(os.path.join(OUT_DIR, "qsvm_kernel_meta.json"), "w") as f:
+    json.dump(meta, f, indent=2)
+
+print("QSVM kernel computation complete.")
+
+```
+
+## File: src/quantum/__init__.py
+
+```py
+
+```
+
 ## File: src/classical/cnn.py
 
 ```py
@@ -986,6 +1134,136 @@ class PCamCNN(nn.Module):
 ## File: src/classical/__init__.py
 
 ```py
+
+```
+
+## File: src/experiments/run_final_comparison.py
+
+```py
+import os
+import json
+import numpy as np
+from tqdm import tqdm
+from sklearn.metrics import accuracy_score
+from sklearn.svm import SVC
+
+from src.utils.paths import load_paths
+from src.IQC.interference.exact_backend import ExactBackend
+from src.IQC.interference.transition_backend import TransitionBackend
+from src.ISDO.baselines.static_isdo_classifier import StaticISDOClassifier
+
+# -------------------------------------------------
+# Config
+# -------------------------------------------------
+INCLUDE_QSVM = False
+K_ISDO = 3   # chosen from K-sweep (best)
+
+# -------------------------------------------------
+# Load paths and data
+# -------------------------------------------------
+_, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+PROTO_DIR = PATHS["class_prototypes"]
+LOG_DIR   = PATHS["logs"]
+QSVM_DIR  = os.path.join(PATHS["artifacts"], "qsvm_cache")
+
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+
+test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+X_test = X[test_idx]
+y_test = y[test_idx]
+
+# quantum-safe normalization (already true, but explicit)
+X_test = X_test / np.linalg.norm(X_test, axis=1, keepdims=True)
+
+# Load base prototype once to avoid disk I/O in loops
+chi_single = np.load(os.path.join(PROTO_DIR, "K1/class1_proto0.npy"))
+
+results = {}
+
+# =================================================
+# IQC – Exact (measurement-free)
+# =================================================
+exact_backend = ExactBackend()
+
+print("Evaluating IQC-Exact...")
+y_pred_exact = []
+for psi in tqdm(X_test, desc="IQC Exact"):
+    s = exact_backend.score(chi=chi_single, psi=psi)
+    y_pred_exact.append(1 if s >= 0 else -1)
+
+results["IQC_Exact"] = accuracy_score(y_test, y_pred_exact)
+
+# =================================================
+# IQC – Transition (circuit B′)
+# =================================================
+transition_backend = TransitionBackend()
+
+print("Evaluating IQC-Transition (Circuit-B')...")
+y_pred_transition = []
+for psi in tqdm(X_test, desc="IQC Transition"):
+    s = transition_backend.score(chi=chi_single, psi=psi)
+    y_pred_transition.append(1 if s >= 0 else -1)
+
+results["IQC_Transition"] = accuracy_score(y_test, y_pred_transition)
+
+# =================================================
+# ISDO – K-prototype interference ( Exact )
+# =================================================
+isdo = StaticISDOClassifier(PROTO_DIR, K_ISDO)
+print(f"Evaluating ISDO-K (K={K_ISDO})...")
+y_pred_isdo = isdo.predict(X_test)
+results["ISDO_K"] = accuracy_score((y_test + 1) // 2, y_pred_isdo)
+
+# =================================================
+# Fidelity (SWAP test) – load cached result
+# =================================================
+results["Fidelity_SWAP"] = 0.8784  # from evaluate_swap_test_batch.py
+
+# =================================================
+# Classical baselines – load from logs
+# =================================================
+with open(os.path.join(LOG_DIR, "embedding_baseline_results.json")) as f:
+    classical = json.load(f)
+
+for k, v in classical.items():
+    results[k] = v["accuracy"]
+
+# =================================================
+# QSVM (optional)
+# =================================================
+if INCLUDE_QSVM:
+    print("Evaluating QSVM baseline...")
+    try:
+        K_train = np.load(os.path.join(QSVM_DIR, "qsvm_kernel_train.npy"))
+        K_test  = np.load(os.path.join(QSVM_DIR, "qsvm_kernel_test.npy"))
+        y_train = np.load(os.path.join(QSVM_DIR, "y_train_sub.npy"))
+        
+        # Note: SVC expects kernel values, labels should correspond to kernel indices
+        qsvm = SVC(kernel="precomputed")
+        qsvm.fit(K_train, y_train)
+        
+        y_test_sub = np.load(os.path.join(QSVM_DIR, "y_test_sub.npy"))
+        y_pred_qsvm = qsvm.predict(K_test)
+        results["QSVM"] = accuracy_score(y_test_sub, y_pred_qsvm)
+
+    except Exception as e:
+        print(f"QSVM evaluation skipped: {e}")
+        results["QSVM"] = None
+
+# -------------------------------------------------
+# Save
+# -------------------------------------------------
+with open("final_comparison_results.json", "w") as f:
+    json.dump(results, f, indent=2)
+
+print("\n=== FINAL COMPARISON ===")
+for k, v in results.items():
+    if v is not None:
+        print(f"{k:25s}: {v:.4f}")
+    else:
+        print(f"{k:25s}: N/A")
 
 ```
 
@@ -1334,7 +1612,6 @@ Saved Regime 3-C memory bank.
 
 ```py
 import numpy as np
-
 from src.IQC.interference.exact_backend import ExactBackend
 from src.IQC.interference.transition_backend import TransitionBackend
 
@@ -2573,6 +2850,102 @@ class TransitionBackend(InterferenceBackend):
         """
         # Call the shared ISDO routine
         return float(run_isdo_circuit(psi, chi))
+```
+
+## File: src/IQC/interference/transition_backend_backup.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Pauli
+from qiskit.circuit.library import UnitaryGate, StatePreparation  # ✅ Correct import
+from .base import InterferenceBackend
+
+
+class TransitionBackend(InterferenceBackend):
+    """
+    CORRECT physical Hadamard-test using transition unitary.
+    
+    This is the physically realizable ISDO implementation.
+    Computes Re⟨chi | psi⟩ using U_chi_psi = U_chi @ U_psi^dagger
+    
+    This should be used for all hardware experiments and claims.
+    """
+    
+    @staticmethod
+    def _statevector_to_unitary(vec):
+        """Build unitary that prepares vec from |0...0⟩"""
+        vec = np.asarray(vec, dtype=np.complex128)
+        vec = vec / np.linalg.norm(vec)
+        dim = len(vec)
+        
+        U = np.zeros((dim, dim), dtype=complex)
+        U[:, 0] = vec
+        
+        # Gram-Schmidt to complete the unitary
+        for i in range(1, dim):
+            v = np.zeros(dim, dtype=complex)
+            v[i] = 1.0
+            
+            for j in range(i):
+                v -= np.vdot(U[:, j], v) * U[:, j]
+            
+            v_norm = np.linalg.norm(v)
+            if v_norm > 1e-10:
+                U[:, i] = v / v_norm
+            else:
+                v = np.random.randn(dim) + 1j * np.random.randn(dim)
+                for j in range(i):
+                    v -= np.vdot(U[:, j], v) * U[:, j]
+                U[:, i] = v / np.linalg.norm(v)
+        
+        return U
+    
+    @staticmethod
+    def _build_transition_unitary(psi, chi):
+        """Build U_chi_psi = U_chi @ U_psi^dagger"""
+        U_psi = TransitionBackend._statevector_to_unitary(psi)
+        U_chi = TransitionBackend._statevector_to_unitary(chi)
+        
+        # Transition unitary
+        U_chi_psi = U_chi @ U_psi.conj().T
+        
+        return UnitaryGate(U_chi_psi)
+    
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+        
+        # Normalize
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+        
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+        
+        qc = QuantumCircuit(1 + n)
+        anc = 0
+        data = list(range(1, 1 + n))
+        
+        # Prepare |psi⟩ on data qubits
+        qc.append(StatePreparation(psi), data)
+        
+        # Hadamard on ancilla
+        qc.h(anc)
+        
+        # Controlled transition unitary
+        U_chi_psi = self._build_transition_unitary(psi, chi)
+        qc.append(U_chi_psi.control(1), [anc] + data)
+        
+        # Final Hadamard
+        qc.h(anc)
+        
+        # Get statevector and measure Z on ancilla
+        sv = Statevector.from_instruction(qc)
+        z_exp = sv.expectation_value(Pauli('Z'), [anc]).real
+        
+        return float(z_exp)
 ```
 
 ## File: src/IQC/interference/exact_backend.py

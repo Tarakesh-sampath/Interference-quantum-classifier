@@ -51,7 +51,7 @@ for psi in tqdm(X_test, desc="IQC Exact"):
     s = exact_backend.score(chi=chi_single, psi=psi)
     y_pred_exact.append(1 if s >= 0 else -1)
 
-results["IQC_Exact"] = accuracy_score(y_test, y_pred_exact)
+results["IQC_Exact_Backend"] = accuracy_score(y_test, y_pred_exact)
 
 # =================================================
 # IQC – Transition (circuit B′)
@@ -64,7 +64,7 @@ for psi in tqdm(X_test, desc="IQC Transition"):
     s = transition_backend.score(chi=chi_single, psi=psi)
     y_pred_transition.append(1 if s >= 0 else -1)
 
-results["IQC_Transition"] = accuracy_score(y_test, y_pred_transition)
+results["IQC_Transition_Backend"] = accuracy_score(y_test, y_pred_transition)
 
 # =================================================
 # ISDO – K-prototype interference ( Exact )
