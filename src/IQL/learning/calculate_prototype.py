@@ -2,64 +2,48 @@ import os
 import numpy as np
 from sklearn.cluster import KMeans
 
-from src.utils.paths import load_paths
 from src.utils.seed import set_seed
 
-# ----------------------------
-# Reproducibility
-# ----------------------------
-set_seed(42)
 
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-PROTO_BASE = PATHS["class_prototypes"]
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-os.makedirs(PROTO_BASE, exist_ok=True)
-
-# ----------------------------
-# Load embeddings (TRAIN ONLY)
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-K_VALUES = PATHS["class_count"]["K_values"]
-# ----------------------------
-# Helper: quantum-safe normalize
-# ----------------------------
+# -------------------------------------------------
+# Helper: quantum-safe normalization
+# -------------------------------------------------
 def to_quantum_state(x):
     x = np.asarray(x, dtype=np.float64).reshape(-1)
     x = x / np.sqrt(np.sum(x ** 2))
     assert np.isclose(np.sum(x ** 2), 1.0, atol=1e-12)
     return x
 
-# ----------------------------
-# K-sweep prototype generation
-# ----------------------------
 
-for K in K_VALUES:
-    print(f"\n=== Computing prototypes for K={K} ===")
+# -------------------------------------------------
+# Core function (IMPORTABLE)
+# -------------------------------------------------
+def generate_prototypes(X, y, K, output_dir, seed=42):
+    """
+    Generate K prototypes per class using KMeans clustering.
 
-    CLASS_DIR = os.path.join(PROTO_BASE, f"K{K}")
-    os.makedirs(CLASS_DIR, exist_ok=True)
+    Args:
+        X (np.ndarray): embeddings, shape (N, D)
+        y (np.ndarray): labels in {0,1}
+        K (int): number of prototypes per class
+        output_dir (str): directory to save prototypes
+        seed (int): random seed
+    """
+    set_seed(seed)
+    os.makedirs(output_dir, exist_ok=True)
 
     for cls in [0, 1]:
-        X_cls = X_train[y_train == cls].astype(np.float64)
+        X_cls = X[y == cls].astype(np.float64)
 
-        print(f"Clustering class {cls} with {len(X_cls)} samples")
+        if len(X_cls) < K:
+            raise ValueError(
+                f"Not enough samples for class {cls}: "
+                f"{len(X_cls)} < K={K}"
+            )
 
         kmeans = KMeans(
             n_clusters=K,
-            random_state=42,
+            random_state=seed,
             n_init=10
         )
         kmeans.fit(X_cls)
@@ -68,6 +52,47 @@ for K in K_VALUES:
 
         for i in range(K):
             proto = to_quantum_state(centers[i])
-            path = os.path.join(CLASS_DIR, f"class{cls}_proto{i}.npy")
+            path = os.path.join(output_dir, f"class{cls}_proto{i}.npy")
             np.save(path, proto)
-            print(f"Saved {path}")
+
+
+# -------------------------------------------------
+# Script mode (EXPERIMENTS ONLY)
+# -------------------------------------------------
+if __name__ == "__main__":
+    from src.utils.paths import load_paths
+
+    # Reproducibility
+    set_seed(42)
+
+    # Load paths
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+    PROTO_BASE = PATHS["class_prototypes"]
+
+    os.makedirs(EMBED_DIR, exist_ok=True)
+    os.makedirs(PROTO_BASE, exist_ok=True)
+
+    # Load embeddings (TRAIN ONLY)
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+
+    X_train = X[train_idx]
+    y_train = y[train_idx]
+
+    print("Loaded train embeddings:", X_train.shape)
+
+    K_VALUES = PATHS["class_count"]["K_values"]
+
+    for K in K_VALUES:
+        print(f"\n=== Computing prototypes for K={K} ===")
+        CLASS_DIR = os.path.join(PROTO_BASE, f"K{K}")
+        generate_prototypes(
+            X=X_train,
+            y=y_train,
+            K=K,
+            output_dir=CLASS_DIR,
+            seed=42
+        )
+        print(f"Saved prototypes to {CLASS_DIR}")
