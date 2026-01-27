@@ -33,7 +33,7 @@ def main():
     # -------------------------------------------------
     # Run Static ISDO Model
     # -------------------------------------------------
-    K = 5  # best K from sweep
+    K = 4 # best K from sweep
     model = StaticISDOModel(K=K)
     model.fit(X_train, y_train)
 
