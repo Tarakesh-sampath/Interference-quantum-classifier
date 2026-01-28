@@ -5,7 +5,7 @@ from src.IQL.learning.update import update
 from src.IQL.backends.exact import ExactBackend
 
 
-class AdaptiveMemoryRegime4:
+class Regime4ASpawn:
     """
     Regime-4A: Interference-Coverage Adaptive Memory
 

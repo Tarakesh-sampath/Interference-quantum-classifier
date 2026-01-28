@@ -7,7 +7,7 @@ from src.utils.label_utils import ensure_polar
 from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.backends.exact import ExactBackend
-from src.IQL.regimes.regime4_adaptive import AdaptiveMemoryRegime4
+from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
 
 
@@ -60,7 +60,7 @@ def main():
     # -------------------------------------------------
     # Train Regime-4A
     # -------------------------------------------------
-    model = AdaptiveMemoryRegime4(
+    model = Regime4ASpawn(
         memory_bank=memory_bank,
         eta=0.1,
         backend=backend,

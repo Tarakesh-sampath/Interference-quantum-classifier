@@ -1,108 +1,167 @@
 import numpy as np
 
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
+from src.IQL.regimes.regime4b_pruning import Regime4BPruning
+from src.IQL.backends.exact import ExactBackend
 from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
-from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
-from src.IQL.regimes.regime3a_wta import WinnerTakeAll
-from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
-from src.IQL.backends.exact import ExactBackend
-from src.IQL.learning.calculate_prototype import generate_prototypes
-from src.utils.paths import load_paths
-from src.utils.label_utils import ensure_polar, ensure_binary
-
-import os
 
 
 class AdaptiveIQC:
     """
-    Final Adaptive Interference Quantum Classifier (IQC)
+    AdaptiveIQC: Self-Regulating Measurement-Free Quantum Classifier
 
-    Pipeline:
-    1. Prototype generation (offline, classical)
-    2. Adaptive growth (Regime-3C)
-    3. Consolidation (Regime-3A)
-    4. Inference-only classifier
+    Combines:
+    - Regime-3A: Winner-Take-All corrective learning (geometry)
+    - Regime-4A: Coverage-based memory spawning (expansion)
+    - Regime-4B: EMA-based responsible pruning (contraction)
+
+    Memory topology and geometry adapt online.
     """
 
     def __init__(
         self,
-        K_init=3,
-        eta=0.1,
-        percentile=5,
+        memory_bank: MemoryBank,
+        *,
+        # -------- Regime-3A (learner) --------
+        eta: float = 0.1,
+        alpha_correct: float = 0.0,
+        alpha_wrong: float = 1.0,
+
+        # -------- Regime-4A (spawn) ----------
+        tau_spawn: float = 0.1,
+        enable_spawn: bool = True,
+
+        # -------- Regime-4B (prune) ----------
+        tau_harm: float = -0.2,
+        min_age: int = 200,
+        min_per_class: int = 1,
+        prune_interval: int = 200,
+        tau_responsible: float = 0.1,
+        harm_ema_beta: float = 0.98,
+        enable_prune: bool = True,
+
         backend=None,
-        consolidate=True,
     ):
-        self.K_init = K_init
-        self.eta = eta
-        self.percentile = percentile
         self.backend = backend or ExactBackend()
-        self.consolidate = consolidate
+        self.memory_bank = memory_bank
 
-        self.memory_bank = None
-        self.regime3c = None
-        self.classifier = None
-
-    def _initialize_memory(self, X, y):
-        _, PATHS = load_paths()
-        proto_dir = os.path.join(PATHS["class_prototypes"], f"K{self.K_init}")
-
-        y_binary = ensure_binary(y)
-        generate_prototypes(
-            X=X,
-            y=y_binary,
-            K=self.K_init,
-            output_dir=proto_dir,
-            seed =42,
-        )
-
-        class_states = []
-        for cls in [0, 1]:
-            for i in range(self.K_init):
-                vec = np.load(
-                    os.path.join(proto_dir, f"class{cls}_proto{i}.npy")
-                )
-                class_states.append(
-                    ClassState(vec, backend=self.backend)
-                )
-
-        self.memory_bank = MemoryBank(class_states)
-
-    def fit(self, X, y):
-        # -------------------------------------------------
-        # Step 1 — initialize memory
-        # -------------------------------------------------
-        y = ensure_polar(y)
-        self._initialize_memory(X, y)
-
-        # -------------------------------------------------
-        # Step 2 — adaptive growth + pruning (Regime-3C)
-        # -------------------------------------------------
-        self.regime3c = AdaptiveMemory(
+        # ---------------- Learner ----------------
+        self.learner = WinnerTakeAll(
             memory_bank=self.memory_bank,
-            eta=self.eta,
-            percentile=self.percentile,
+            eta=eta,
             backend=self.backend,
+            alpha=alpha_correct,
+            beta=alpha_wrong,
         )
-        self.regime3c.fit(X, y)
 
-        # -------------------------------------------------
-        # Step 3 — optional consolidation (Regime-3A)
-        # -------------------------------------------------
-        if self.consolidate:
-            consolidator = WinnerTakeAll(
+        # ---------------- Spawner ----------------
+        self.enable_spawn = enable_spawn
+        if enable_spawn:
+            self.spawner = Regime4ASpawn(
                 memory_bank=self.memory_bank,
-                eta=self.eta,
+                tau_spawn=tau_spawn,
                 backend=self.backend,
             )
-            consolidator.fit(X, y)
+        else:
+            self.spawner = None
 
-        # -------------------------------------------------
-        # Step 4 — freeze & inference
-        # -------------------------------------------------
-        self.classifier = WeightedVoteClassifier(self.memory_bank)
-        return self
+        # ---------------- Pruner ----------------
+        self.enable_prune = enable_prune
+        if enable_prune:
+            self.pruner = Regime4BPruning(
+                memory_bank=self.memory_bank,
+                tau_harm=tau_harm,
+                min_age=min_age,
+                min_per_class=min_per_class,
+                prune_interval=prune_interval,
+            )
+        else:
+            self.pruner = None
+
+        # -------- Regime-4B observation params --------
+        self.tau_responsible = tau_responsible
+        self.harm_ema_beta = harm_ema_beta
+
+        # ---------------- Stats ----------------
+        self.step_count = 0
+        self.history = {
+            "spawns": 0,
+            "prunes": 0,
+            "updates": 0,
+            "memory_size": [],
+        }
+
+    # =================================================
+    # Single training step
+    # =================================================
+    def step(self, psi, y_true):
+        self.step_count += 1
+
+        # -------- 1. Learning (Regime-3A) --------
+        y_hat, _, updated = self.learner.step(psi, y_true)
+        if updated:
+            self.history["updates"] += 1
+
+        # -------- 2. Update memory metadata --------
+        self.memory_bank.increment_age()
+        self.memory_bank.update_harm_ema(
+            psi,
+            tau_responsible=self.tau_responsible,
+            beta=self.harm_ema_beta,
+        )
+
+        # -------- 3. Coverage expansion (Regime-4A) --------
+        if self.enable_spawn:
+            spawned = self.spawner.step(psi, y_true)
+            if spawned:
+                self.history["spawns"] += 1
+
+        # -------- 4. Pruning (Regime-4B) --------
+        if self.enable_prune:
+            pruned = self.pruner.step()
+            if pruned:
+                self.history["prunes"] += len(pruned)
+
+        # -------- 5. Bookkeeping --------
+        self.history["memory_size"].append(
+            len(self.memory_bank.class_states)
+        )
+
+        return y_hat
+
+    # =================================================
+    # Training loop
+    # =================================================
+    def fit(self, X, y):
+        correct = 0
+        for psi, label in zip(X, y):
+            y_hat = self.step(psi, label)
+            if y_hat == label:
+                correct += 1
+        return correct / len(X)
+
+    # =================================================
+    # Prediction
+    # =================================================
+    def predict_one(self, psi):
+        _, score = self.memory_bank.winner(psi)
+        return 1 if score >= 0 else -1
 
     def predict(self, X):
-        if self.classifier is None:
-            raise RuntimeError("Model not trained.")
-        return [self.classifier.predict(x) for x in X]
+        return [self.predict_one(x) for x in X]
+
+    # =================================================
+    # Diagnostics
+    # =================================================
+    def summary(self):
+        return {
+            "steps": self.step_count,
+            "memory_size": len(self.memory_bank.class_states),
+            "num_updates": self.history["updates"],
+            "num_spawns": self.history["spawns"],
+            "num_prunes": self.history["prunes"],
+            "enable_spawn": self.enable_spawn,
+            "enable_prune": self.enable_prune,
+        }
