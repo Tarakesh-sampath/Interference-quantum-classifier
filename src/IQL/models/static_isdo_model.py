@@ -2,7 +2,7 @@
 
 from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
 from src.utils.paths import load_paths
-from src.IQL.learning.calculate_prototype import generate_prototypes
+from src.IQL.learning.prototype import generate_prototypes
 import os
 
 class StaticISDOModel:

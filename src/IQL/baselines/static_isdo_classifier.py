@@ -2,16 +2,24 @@ import os
 import numpy as np
 from tqdm import tqdm
 from src.IQL.backends.exact import ExactBackend
+from src.IQL.learning.prototype import load_prototypes
 
 class StaticISDOClassifier:
     def __init__(self, proto_dir, K):
         self.proto_dir = proto_dir
         self.K = K
         self.exact = ExactBackend()
-        self.prototypes = {
-            0: [np.load(os.path.join(proto_dir, f"K{K}/class0_proto{i}.npy")) for i in range(K)],
-            1: [np.load(os.path.join(proto_dir, f"K{K}/class1_proto{i}.npy")) for i in range(K)],
-        }
+        protos = load_prototypes(
+            K=K,
+            output_dir=os.path.join(proto_dir, f"K{K}")
+        )
+        # Binary split (ignore labels even if present)
+        self.prototypes = {0: [], 1: []}
+        for p in protos:
+            # class index is encoded in filename order,
+            # OR we can rely on p["label"] if present
+            cls = p["label"] if p["label"] is not None else None
+            self.prototypes[cls].append(p["vector"])
 
     def predict_one(self, psi):
         #A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])

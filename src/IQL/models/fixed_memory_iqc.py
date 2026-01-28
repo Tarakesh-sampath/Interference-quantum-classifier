@@ -57,14 +57,14 @@ class FixedMemoryIQC:
         # -------------------------------------------------
         # Step 1: ensure prototypes exist
         # -------------------------------------------------
-        proto_vectors = self._ensure_prototypes(X, y)
+        proto = self._ensure_prototypes(X, y)
 
         # -------------------------------------------------
         # Step 2: initialize memory bank
         # -------------------------------------------------
         class_states = [
-            ClassState(v, backend=self.backend)
-            for v in proto_vectors
+            ClassState(v["vector"], backend=self.backend, label=v["label"])
+            for v in proto
         ]
         self.memory_bank = MemoryBank(class_states)
 
