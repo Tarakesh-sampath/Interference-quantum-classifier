@@ -9,7 +9,7 @@ from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.regimes.regime3a_wta import WinnerTakeAll
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
 from src.IQL.backends.exact import ExactBackend
-from src.IQL.learning.calculate_prototype import generate_prototypes
+from src.IQL.learning.prototype import generate_prototypes,load_prototypes
 from src.utils.label_utils import ensure_binary
 
 
@@ -51,30 +51,17 @@ class FixedMemoryIQC:
             K=self.K,
             output_dir=proto_dir
         )
-
-    def _load_prototypes(self):
-        _, PATHS = load_paths()
-        proto_dir = PATHS["class_prototypes"]
-
-        vectors = []
-        for cls in [0, 1]:
-            for i in range(self.K):
-                path = os.path.join(
-                    proto_dir, f"K{self.K}", f"class{cls}_proto{i}.npy"
-                )
-                vectors.append(np.load(path))
-        return vectors
-
+        return load_prototypes(K=self.K, output_dir=proto_dir)
+        
     def fit(self, X, y):
         # -------------------------------------------------
         # Step 1: ensure prototypes exist
         # -------------------------------------------------
-        self._ensure_prototypes(X, y)
+        proto_vectors = self._ensure_prototypes(X, y)
 
         # -------------------------------------------------
         # Step 2: initialize memory bank
         # -------------------------------------------------
-        proto_vectors = self._load_prototypes()
         class_states = [
             ClassState(v, backend=self.backend)
             for v in proto_vectors
