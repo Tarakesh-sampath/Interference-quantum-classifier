@@ -13,14 +13,13 @@ measurement-free-quantum-classifier/
             models/
                 fixed_memory_iqc.py
                 static_isdo_model.py
-                adaptive_iqc.py
                 __init__.py
             learning/
                 class_state.py
                 update.py
                 metrics.py
+                prototype.py
                 memory_bank.py
-                calculate_prototype.py
                 __init__.py
             backends/
                 base.py
@@ -30,7 +29,9 @@ measurement-free-quantum-classifier/
                 exact.py
                 __init__.py
             regimes/
-                regime3c_adaptive.py
+                regime3b_responsible.py
+                regime4a_spawn.py
+                regime4b_pruning.py
                 regime3a_wta.py
                 regime2_online.py
                 __init__.py
@@ -57,7 +58,6 @@ measurement-free-quantum-classifier/
             compute_qsvm_kernel.py
             __init__.py
         training/
-            test_adaptive_iqc.py
             verify_consistency.py
             run_final_comparison.py
             compare_best_iqc_vs_classical.py
@@ -67,6 +67,10 @@ measurement-free-quantum-classifier/
             compare_iqc_algorithms.py
             protocol_online/
                 train_perceptron.py
+            protocol_adaptive_pruning_regime4b/
+                test_regime4b_pruning.py
+            protocol_adaptive_regime4A/
+                test_regime4a.py
             protocol_static/
                 evaluate_isdo_k_sweep.py
                 evaluate_static_isdo.py
@@ -78,9 +82,8 @@ measurement-free-quantum-classifier/
                 train_cnn.py
                 verify_embbeings.py
                 visualize_pcam.py
-            protocol_adaptive/
-                consolidate_memory.py
-                train_adaptive_memory.py
+            protocol_fixed_regime3b_responsible/
+                test_regime3b_egime3b_responsible.py
         classical/
             cnn.py
             __init__.py
@@ -131,7 +134,7 @@ from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.regimes.regime3a_wta import WinnerTakeAll
 from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
 from src.IQL.backends.exact import ExactBackend
-from src.IQL.learning.calculate_prototype import generate_prototypes
+from src.IQL.learning.prototype import generate_prototypes,load_prototypes
 from src.utils.label_utils import ensure_binary
 
 
@@ -146,10 +149,12 @@ class FixedMemoryIQC:
     4. Freeze memory
     """
 
-    def __init__(self, K: int, eta: float = 0.1, backend=None):
+    def __init__(self, K: int, eta: float = 0.1, backend=None, alpha: float = 0, beta: float = 1):
         self.K = K
         self.eta = eta
         self.backend = backend or ExactBackend()
+        self.alpha = alpha
+        self.beta = beta
 
         self.memory_bank = None
         self.trainer = None
@@ -171,33 +176,20 @@ class FixedMemoryIQC:
             K=self.K,
             output_dir=proto_dir
         )
-
-    def _load_prototypes(self):
-        _, PATHS = load_paths()
-        proto_dir = PATHS["class_prototypes"]
-
-        vectors = []
-        for cls in [0, 1]:
-            for i in range(self.K):
-                path = os.path.join(
-                    proto_dir, f"K{self.K}", f"class{cls}_proto{i}.npy"
-                )
-                vectors.append(np.load(path))
-        return vectors
-
+        return load_prototypes(K=self.K, output_dir=proto_dir)
+        
     def fit(self, X, y):
         # -------------------------------------------------
         # Step 1: ensure prototypes exist
         # -------------------------------------------------
-        self._ensure_prototypes(X, y)
+        proto = self._ensure_prototypes(X, y)
 
         # -------------------------------------------------
         # Step 2: initialize memory bank
         # -------------------------------------------------
-        proto_vectors = self._load_prototypes()
         class_states = [
-            ClassState(v, backend=self.backend)
-            for v in proto_vectors
+            ClassState(v["vector"], backend=self.backend, label=v["label"])
+            for v in proto
         ]
         self.memory_bank = MemoryBank(class_states)
 
@@ -207,7 +199,9 @@ class FixedMemoryIQC:
         self.trainer = WinnerTakeAll(
             memory_bank=self.memory_bank,
             eta=self.eta,
-            backend=self.backend
+            backend=self.backend,
+            alpha = self.alpha,
+            beta = self.beta
         )
         self.trainer.fit(X, y)
 
@@ -231,7 +225,7 @@ class FixedMemoryIQC:
 
 from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
 from src.utils.paths import load_paths
-from src.IQL.learning.calculate_prototype import generate_prototypes
+from src.IQL.learning.prototype import generate_prototypes
 import os
 
 class StaticISDOModel:
@@ -284,120 +278,6 @@ class StaticISDOModel:
 
 ```
 
-## File: src/IQL/models/adaptive_iqc.py
-
-```py
-import numpy as np
-
-from src.IQL.learning.class_state import ClassState
-from src.IQL.learning.memory_bank import MemoryBank
-from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
-from src.IQL.regimes.regime3a_wta import WinnerTakeAll
-from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
-from src.IQL.backends.exact import ExactBackend
-from src.IQL.learning.calculate_prototype import generate_prototypes
-from src.utils.paths import load_paths
-from src.utils.label_utils import ensure_polar, ensure_binary
-
-import os
-
-
-class AdaptiveIQC:
-    """
-    Final Adaptive Interference Quantum Classifier (IQC)
-
-    Pipeline:
-    1. Prototype generation (offline, classical)
-    2. Adaptive growth (Regime-3C)
-    3. Consolidation (Regime-3A)
-    4. Inference-only classifier
-    """
-
-    def __init__(
-        self,
-        K_init=3,
-        eta=0.1,
-        percentile=5,
-        backend=None,
-        consolidate=True,
-    ):
-        self.K_init = K_init
-        self.eta = eta
-        self.percentile = percentile
-        self.backend = backend or ExactBackend()
-        self.consolidate = consolidate
-
-        self.memory_bank = None
-        self.regime3c = None
-        self.classifier = None
-
-    def _initialize_memory(self, X, y):
-        _, PATHS = load_paths()
-        proto_dir = os.path.join(PATHS["class_prototypes"], f"K{self.K_init}")
-
-        y_binary = ensure_binary(y)
-        generate_prototypes(
-            X=X,
-            y=y_binary,
-            K=self.K_init,
-            output_dir=proto_dir,
-            seed =42,
-        )
-
-        class_states = []
-        for cls in [0, 1]:
-            for i in range(self.K_init):
-                vec = np.load(
-                    os.path.join(proto_dir, f"class{cls}_proto{i}.npy")
-                )
-                class_states.append(
-                    ClassState(vec, backend=self.backend)
-                )
-
-        self.memory_bank = MemoryBank(class_states)
-
-    def fit(self, X, y):
-        # -------------------------------------------------
-        # Step 1 — initialize memory
-        # -------------------------------------------------
-        y = ensure_polar(y)
-        self._initialize_memory(X, y)
-
-        # -------------------------------------------------
-        # Step 2 — adaptive growth + pruning (Regime-3C)
-        # -------------------------------------------------
-        self.regime3c = AdaptiveMemory(
-            memory_bank=self.memory_bank,
-            eta=self.eta,
-            percentile=self.percentile,
-            backend=self.backend,
-        )
-        self.regime3c.fit(X, y)
-
-        # -------------------------------------------------
-        # Step 3 — optional consolidation (Regime-3A)
-        # -------------------------------------------------
-        if self.consolidate:
-            consolidator = WinnerTakeAll(
-                memory_bank=self.memory_bank,
-                eta=self.eta,
-                backend=self.backend,
-            )
-            consolidator.fit(X, y)
-
-        # -------------------------------------------------
-        # Step 4 — freeze & inference
-        # -------------------------------------------------
-        self.classifier = WeightedVoteClassifier(self.memory_bank)
-        return self
-
-    def predict(self, X):
-        if self.classifier is None:
-            raise RuntimeError("Model not trained.")
-        return [self.classifier.predict(x) for x in X]
-
-```
-
 ## File: src/IQL/models/__init__.py
 
 ```py
@@ -424,9 +304,12 @@ class ClassState:
     Invariant: ||chi|| = 1 always.
     """
 
-    def __init__(self, vector: np.ndarray ,backend: InterferenceBackend):
+    def __init__(self, vector: np.ndarray, label: int = None, backend: InterferenceBackend = None):
         self.vector = normalize(vector.astype(np.complex128))
         self.backend = backend
+        self.label = label
+        self.age = 0 
+        self.harm_ema = 0.0 
 
     def score(self, psi: np.ndarray) -> float:
         """
@@ -495,37 +378,7 @@ def summarize_training(history: dict):
 
 ```
 
-## File: src/IQL/learning/memory_bank.py
-
-```py
-from src.IQL.learning.class_state import ClassState
-
-class MemoryBank:
-    def __init__(self, class_states):
-        self.class_states = class_states
-
-    def scores(self, psi):
-        return [
-            cs.score(psi)
-            for cs in self.class_states
-        ]
-
-    def winner(self, psi):
-        scores = self.scores(psi)
-        idx = int(max(range(len(scores)), key=lambda i: abs(scores[i])))
-        #idx = int(max(range(len(scores)), key=lambda i: scores[i])) ## causes lower score ??
-        return idx, scores[idx]
-
-    def add_memory(self, chi_vector, backend):
-        self.class_states.append(ClassState(chi_vector, backend=backend))
-
-    def remove(self, idx):
-        """Remove memory at index idx."""
-        if 0 <= idx < len(self.class_states):
-            del self.class_states[idx]
-```
-
-## File: src/IQL/learning/calculate_prototype.py
+## File: src/IQL/learning/prototype.py
 
 ```py
 import os
@@ -551,13 +404,7 @@ def to_quantum_state(x):
 def generate_prototypes(X, y, K, output_dir, seed=42):
     """
     Generate K prototypes per class using KMeans clustering.
-
-    Args:
-        X (np.ndarray): embeddings, shape (N, D)
-        y (np.ndarray): labels in {0,1}
-        K (int): number of prototypes per class
-        output_dir (str): directory to save prototypes
-        seed (int): random seed
+    Prototypes are saved WITH labels.
     """
     set_seed(seed)
     os.makedirs(output_dir, exist_ok=True)
@@ -582,10 +429,52 @@ def generate_prototypes(X, y, K, output_dir, seed=42):
 
         for i in range(K):
             proto = to_quantum_state(centers[i])
-            path = os.path.join(output_dir, f"class{cls}_proto{i}.npy")
-            np.save(path, proto)
 
+            path = os.path.join(
+                output_dir, f"class{cls}_proto{i}.npz"
+            )
 
+            # ---- SAVE VECTOR + LABEL ----
+            np.savez(
+                path,
+                vector=proto,
+                label=cls
+            )
+
+def load_prototypes(K, output_dir):
+    """
+    Load prototypes generated by generate_prototypes.
+
+    Returns:
+        List[dict]: each dict has keys { "vector", "label" }
+    """
+    prototypes = []
+
+    for cls in [0, 1]:
+        for i in range(K):
+            # New format (.npz)
+            npz_path = os.path.join(
+                output_dir, f"class{cls}_proto{i}.npz"
+            )
+
+            if os.path.exists(npz_path):
+                data = np.load(npz_path)
+                prototypes.append({
+                    "vector": data["vector"],
+                    "label": int(data["label"]),
+                })
+            else:
+                # ---- BACKWARD COMPATIBILITY (.npy) ----
+                npy_path = os.path.join(
+                    output_dir, f"class{cls}_proto{i}.npy"
+                )
+                vec = np.load(npy_path)
+                prototypes.append({
+                    "vector": vec,
+                    "label": None,
+                })
+
+    return prototypes
 # -------------------------------------------------
 # Script mode (EXPERIMENTS ONLY)
 # -------------------------------------------------
@@ -627,6 +516,77 @@ if __name__ == "__main__":
         )
         print(f"Saved prototypes to {CLASS_DIR}")
 
+```
+
+## File: src/IQL/learning/memory_bank.py
+
+```py
+from src.IQL.learning.class_state import ClassState
+
+class MemoryBank:
+    def __init__(self, class_states):
+        self.class_states = class_states
+
+    def scores(self, psi):
+        return [
+            cs.score(psi)
+            for cs in self.class_states
+        ]
+
+    def increment_age(self):
+        """
+        Increment age of all memories by 1.
+        Call once per training step.
+        """
+        for cs in self.class_states:
+            cs.age += 1
+
+    def update_harm_ema(self, psi, tau_responsible, beta):
+        """
+        Update harm EMA for responsible memories.
+
+        Args:
+            psi: input state
+            tau_responsible: responsibility threshold
+            beta: EMA decay factor
+        """
+        scores = self.scores(psi)
+
+        for cs, s in zip(self.class_states, scores):
+            if abs(s) > tau_responsible and cs.label is not None:
+                harm = cs.label * s
+                cs.harm_ema = beta * cs.harm_ema + (1 - beta) * harm
+
+    def winner(self, psi):
+        scores = self.scores(psi)
+        idx = int(max(range(len(scores)), key=lambda i: abs(scores[i])))
+        #idx = int(max(range(len(scores)), key=lambda i: scores[i])) ## causes lower score ??
+        return idx, scores[idx]
+
+    def add_memory(self, chi_vector, backend, label=None):
+        """
+        Add a new memory to the bank.
+        
+        Args:
+            chi_vector: quantum state vector
+            backend: interference backend
+            label: class label (optional, but recommended for pruning)
+        """
+        self.class_states.append(ClassState(chi_vector, backend=backend, label=label))
+
+    def remove(self, idx):
+        """Remove memory at index idx."""
+        if 0 <= idx < len(self.class_states):
+            del self.class_states[idx]
+    
+    def prune(self, prune_states):
+        """
+        Remove given ClassState objects from the memory bank.
+        """
+        self.class_states = [
+            cs for cs in self.class_states
+            if cs not in prune_states
+        ]
 ```
 
 ## File: src/IQL/learning/__init__.py
@@ -950,181 +910,279 @@ class ExactBackend(InterferenceBackend):
 
 ```
 
-## File: src/IQL/regimes/regime3c_adaptive.py
+## File: src/IQL/regimes/regime3b_responsible.py
 
 ```py
 import numpy as np
-from collections import deque
 from src.IQL.learning.update import update
 from src.IQL.backends.exact import ExactBackend
-import pickle
 
-class AdaptiveMemory:
+
+class Regime3BResponsible:
     """
-    Regime 3-C: Dynamic Memory Growth with Percentile-based τ
+    Regime-3B: Responsible-Set Corrective Learning
+
+    - Same as Regime-3A, but:
+      instead of updating only the winner,
+      update all RESPONSIBLE memories.
+
+    - Direction still comes from y_true
+    - Uses existing update() primitive
+    - Guard-A: update energy normalized by |responsible set|
     """
 
     def __init__(
         self,
         memory_bank,
-        eta=0.1,
-        percentile=5,
-        tau_abs = -0.4,
-        margin_window=500,
-        backend=ExactBackend()
+        eta,
+        backend=ExactBackend(),
+        alpha_correct: float = 0.0,
+        alpha_wrong: float = 1.0,
+        tau: float = 0.1,   # responsibility threshold
     ):
         self.memory_bank = memory_bank
         self.eta = eta
-        self.percentile = percentile
-        self.tau_abs = tau_abs
         self.backend = backend
 
-        # store recent margins
-        self.margins = deque(maxlen=margin_window)
+        self.alpha_correct = alpha_correct
+        self.alpha_wrong = alpha_wrong
+        self.tau = tau
 
         self.num_updates = 0
-        self.num_spawns = 0
 
-        self.history = {
-            "margin": [],
-            "spawned": [],
-            "num_memories": [],
-        }
-
-    def aggregated_score(self, psi):
+    # -------------------------------------------------
+    # Core step
+    # -------------------------------------------------
+    def step(self, psi, y_true):
+        # Compute all scores
         scores = self.memory_bank.scores(psi)
-        return sum(scores) / len(scores)
 
-    def step(self, psi, y):
-        S = self.aggregated_score(psi)
-        margin = y * S
+        # Winner (for prediction only)
+        idx_star = int(np.argmax(np.abs(scores)))
+        score_star = scores[idx_star]
 
-        # collect negative margins only
-        neg_margins = [m for m in self.margins if m < 0]
+        # Correctness
+        misclassified = (y_true * score_star) < 0
+        alpha = self.alpha_wrong if misclassified else self.alpha_correct
 
-        spawned = False
+        # Prediction
+        y_hat = 1 if score_star >= 0 else -1
 
-        # compute percentile only if we have enough negative history
-        if len(neg_margins) >= 20:
-            tau = np.percentile(neg_margins, self.percentile)
+        # ----------------------------------
+        # Responsible set
+        # ----------------------------------
+        responsible = [
+            cs for cs, s in zip(self.memory_bank.class_states, scores)
+            if abs(s) > self.tau
+        ]
 
-            if margin < tau:
-                # 🔥 spawn new memory
-                chi_new = y * psi
-                chi_new = chi_new / np.linalg.norm(chi_new)
-                self.memory_bank.add_memory(chi_new, self.backend)
-                self.num_spawns += 1
-                spawned = True
+        # Fallback: always update winner at least
+        if not responsible:
+            responsible = [self.memory_bank.class_states[idx_star]]
 
-        # otherwise, normal Regime-2 update on winner
-        if not spawned:
-            idx, _ = self.memory_bank.winner(psi)
-            cs = self.memory_bank.class_states[idx]
+        # Guard-A normalization
+        scale = self.eta * alpha / len(responsible)
 
+        # ----------------------------------
+        # Update ALL responsible memories
+        # ----------------------------------
+        for cs in responsible:
             chi_new, updated = update(
-                cs.vector, psi, y, self.eta, self.backend
+                cs.vector,
+                psi,
+                y_true,     # ← direction = truth (unchanged)
+                scale,
+                self.backend,
             )
-
             if updated:
                 cs.vector = chi_new
                 self.num_updates += 1
 
-        # logging
-        self.margins.append(margin)
-        self.history["margin"].append(margin)
-        self.history["spawned"].append(spawned)
-        self.history["num_memories"].append(len(self.memory_bank.class_states))
+        return y_hat
 
-        return margin, spawned
-    
-    def memory_size(self):
-        return len(self.memory_bank.class_states)
-
+    # -------------------------------------------------
+    # Training loop
+    # -------------------------------------------------
     def fit(self, X, y):
-        for psi, y in zip(X, y):
-            self.step(psi, y)
+        correct = 0
+        for psi, label in zip(X, y):
+            y_hat = self.step(psi, label)
+            if y_hat == label:
+                correct += 1
+        return correct / len(X)
 
-    def predict_one(self, X):
-        _, score = self.memory_bank.winner(X)
+    # -------------------------------------------------
+    # Prediction
+    # -------------------------------------------------
+    def predict_one(self, psi):
+        _, score = self.memory_bank.winner(psi)
         return 1 if score >= 0 else -1
-    
+
     def predict(self, X):
         return [self.predict_one(x) for x in X]
-        
-    def save(self, path):
-        """
-        Save trained memory + training history.
-        """
-        payload = {
-            "memory_bank": self.memory_bank,
-            "eta": self.eta,
-            "percentile": self.percentile,
-            "tau_abs": self.tau_abs,
-            "margins": list(self.margins),
+
+    # -------------------------------------------------
+    # Summary
+    # -------------------------------------------------
+    def summary(self):
+        return {
+            "memory_size": len(self.memory_bank.class_states),
             "num_updates": self.num_updates,
-            "num_spawns": self.num_spawns,
-            "history": self.history,
-            "backend": self.backend,
+            "tau": self.tau,
+            "alpha_correct": self.alpha_correct,
+            "alpha_wrong": self.alpha_wrong,
         }
 
-        with open(path, "wb") as f:
-            pickle.dump(payload, f)
-
-    @classmethod
-    def load(cls, path):
-        """
-        Load a previously trained Regime-3C model.
-        """
-        with open(path, "rb") as f:
-            payload = pickle.load(f)
-
-        obj = cls(
-            memory_bank=payload["memory_bank"],
-            eta=payload["eta"],
-            percentile=payload["percentile"],
-            tau_abs=payload["tau_abs"],
-            margin_window=len(payload["margins"]),
-            backend=payload["backend"],
-        )
-
-        # restore training state
-        from collections import deque
-        obj.margins = deque(payload["margins"], maxlen=len(payload["margins"]))
-        obj.num_updates = payload["num_updates"]
-        obj.num_spawns = payload["num_spawns"]
-        obj.history = payload["history"]
-
-        return obj
 ```
 
-## File: src/IQL/regimes/regime3a_wta.py
+## File: src/IQL/regimes/regime4a_spawn.py
 
 ```py
+import numpy as np
+from collections import defaultdict
+
 from src.IQL.learning.update import update
 from src.IQL.backends.exact import ExactBackend
-import pickle
 
-class WinnerTakeAll:
+
+class Regime4ASpawn:
     """
-    Regime 3-A: Winner-Takes-All IQC
-    Only the winning memory is updated.
+    Regime-4A: Interference-Coverage Adaptive Memory
+
+    Properties:
+    - New implementation (does NOT inherit from Regime-3C)
+    - Uses EXACT Regime-3A semantics:
+        * Winner-Take-All selection
+        * Same misclassification rule
+        * Same Regime-2 update
+    - Adds memory ONLY when:
+        * Winner interference is weak (poor coverage)
+        * Winner misclassifies the sample
+        * Spawn cooldown allows it
+    - Early phase: class-polarized spawning
+    - Later phase: class-agnostic spawning
     """
 
-    def __init__(self, memory_bank, eta, backend = ExactBackend()):
+    def __init__(
+        self,
+        memory_bank,
+        eta: float = 0.1,
+        backend=None,
+        delta_cover: float = 0.2,
+        spawn_cooldown: int = 100,
+        min_polarized_per_class: int = 1,
+    ):
+        """
+        Args:
+            memory_bank (MemoryBank): existing memory bank
+            eta (float): learning rate (Regime-2 update)
+            backend (InterferenceBackend): scoring backend
+            delta_cover (float): minimum |interference| required to avoid spawning
+            spawn_cooldown (int): minimum steps between spawns
+            min_polarized_per_class (int): bootstrap polarized memories per class
+        """
         self.memory_bank = memory_bank
         self.eta = eta
-        self.backend = backend
-        self.num_updates = 0
+        self.backend = backend or ExactBackend()
 
+        # Regime-4A parameters
+        self.delta_cover = delta_cover
+        self.spawn_cooldown = spawn_cooldown
+        self.min_polarized_per_class = min_polarized_per_class
+
+        # Internal state
+        self.steps_since_spawn = spawn_cooldown
+        self.polarized_count = defaultdict(int)
+
+        # Logging / diagnostics
+        self.num_spawns = 0
+        self.num_updates = 0
         self.history = {
-            "winner_idx": [],
-            "scores": [],
-            "updates": [],
+            "action": [],        # "spawned" | "updated" | "noop"
+            "winner_score": [],
+            "memory_size": [],
         }
 
-    def step(self, psi, y):
-        idx, score = self.memory_bank.winner(psi)
-        cs = self.memory_bank.class_states[idx]
+    # -------------------------------------------------
+    # Core step
+    # -------------------------------------------------
+    def step(self, psi: np.ndarray, y: int):
+        """
+        Process a single training example.
+
+        Args:
+            psi (np.ndarray): input quantum state |psi>
+            y (int): label in {-1, +1}
+
+        Returns:
+            action (str): "spawned", "updated", or "noop"
+        """
+
+        # ---------------------------------------------
+        # 1. Compute interference scores
+        # ---------------------------------------------
+        scores = self.memory_bank.scores(psi)
+
+        if len(scores) == 0:
+            raise RuntimeError("MemoryBank is empty — cannot run Regime-4A.")
+
+        # ---------------------------------------------
+        # 2. Winner-Take-All (EXACT Regime-3A semantics)
+        # ---------------------------------------------
+        winner_idx = max(range(len(scores)), key=lambda i: abs(scores[i]))
+        s_star = scores[winner_idx]
+
+        # ---------------------------------------------
+        # 3. Coverage + misclassification checks
+        # ---------------------------------------------
+        poor_coverage = abs(s_star) < self.delta_cover
+        misclassified = (y * s_star) < 0
+        spawn_allowed = self.steps_since_spawn >= self.spawn_cooldown
+
+        # ---------------------------------------------
+        # 4. Regime-4A: Spawn new memory if needed
+        # ---------------------------------------------
+        if poor_coverage and misclassified and spawn_allowed:
+            residual = psi.astype(np.complex128, copy=True)
+
+            # Orthogonalize against existing memory
+            for cs in self.memory_bank.class_states:
+                proj = np.vdot(cs.vector, psi)
+                residual -= proj * cs.vector
+
+            norm = np.linalg.norm(residual)
+
+            if norm > 1e-8:
+                residual /= norm
+
+                # -------------------------------------
+                # Polarized → agnostic transition
+                # -------------------------------------
+                # Polarized → agnostic transition
+                if self.polarized_count[y] < self.min_polarized_per_class:
+                    chi_new = y * residual
+                    self.polarized_count[y] += 1
+                    label = y  # ✅ SET LABEL for polarized memories
+                else:
+                    chi_new = residual
+                    label = None  # Agnostic memories have no label
+
+                self.memory_bank.add_memory(chi_new, self.backend, label=label)  # ✅ PASS LABEL
+                self.steps_since_spawn = 0
+                self.num_spawns += 1
+
+                self.history["action"].append("spawned")
+                self.history["winner_score"].append(float(s_star))
+                self.history["memory_size"].append(
+                    len(self.memory_bank.class_states)
+                )
+
+                return "spawned"
+
+        # ---------------------------------------------
+        # 5. Otherwise: standard Regime-3A update
+        # ---------------------------------------------
+        cs = self.memory_bank.class_states[winner_idx]
 
         chi_new, updated = update(
             cs.vector, psi, y, self.eta, self.backend
@@ -1134,31 +1192,229 @@ class WinnerTakeAll:
             cs.vector = chi_new
             self.num_updates += 1
 
+        self.steps_since_spawn += 1
+
+        self.history["action"].append("updated" if updated else "noop")
+        self.history["winner_score"].append(float(s_star))
+        self.history["memory_size"].append(
+            len(self.memory_bank.class_states)
+        )
+
+        return "updated" if updated else "noop"
+
+    # -------------------------------------------------
+    # Training loop
+    # -------------------------------------------------
+    def fit(self, X, y):
+        """
+        Online training over dataset.
+
+        Args:
+            X (Iterable[np.ndarray]): input states
+            y (Iterable[int]): labels in {-1, +1}
+        """
+        for psi, label in zip(X, y):
+            self.step(psi, label)
+        return self
+
+    # -------------------------------------------------
+    # Convenience helpers
+    # -------------------------------------------------
+    def memory_size(self) -> int:
+        return len(self.memory_bank.class_states)
+
+    def summary(self) -> dict:
+        return {
+            "memory_size": self.memory_size(),
+            "num_spawns": self.num_spawns,
+            "num_updates": self.num_updates,
+        }
+
+```
+
+## File: src/IQL/regimes/regime4b_pruning.py
+
+```py
+class Regime4BPruning:
+    """
+    Regime-4B: Responsible EMA-Based Memory Pruning
+
+    Removes memories that:
+    - are old enough
+    - are responsible for interference
+    - consistently interfere destructively with their own class
+    """
+
+    def __init__(
+        self,
+        memory_bank,
+        tau_harm=-0.2,
+        min_age=200,
+        min_per_class=1,
+        prune_interval=200,
+    ):
+        self.memory_bank = memory_bank
+        self.tau_harm = tau_harm
+        self.min_age = min_age
+        self.min_per_class = min_per_class
+        self.prune_interval = prune_interval
+
+        self.step_count = 0
+        self.num_pruned = 0
+
+    # -------------------------------------------------
+    # Called once per training step
+    # -------------------------------------------------
+    def step(self):
+        self.step_count += 1
+
+        if self.step_count % self.prune_interval != 0:
+            return []
+
+        return self.prune()
+
+    # -------------------------------------------------
+    # Core pruning logic
+    # -------------------------------------------------
+    def prune(self):
+        to_prune = []
+
+        # Count memories per class
+        class_counts = {}
+        for cs in self.memory_bank.class_states:
+            class_counts.setdefault(cs.label, 0)
+            class_counts[cs.label] += 1
+
+        # Identify prune candidates
+        for cs in self.memory_bank.class_states:
+            if cs.age < self.min_age:
+                continue
+
+            if cs.harm_ema < self.tau_harm:
+                # enforce class floor
+                if class_counts.get(cs.label, 0) > self.min_per_class:
+                    to_prune.append(cs)
+                    class_counts[cs.label] -= 1
+
+        if to_prune:
+            self.memory_bank.prune(to_prune)
+            self.num_pruned += len(to_prune)
+
+        return to_prune
+
+    # -------------------------------------------------
+    # Diagnostics
+    # -------------------------------------------------
+    def summary(self):
+        return {
+            "num_pruned": self.num_pruned,
+            "current_memory_size": len(self.memory_bank.class_states),
+            "steps": self.step_count,
+        }
+
+```
+
+## File: src/IQL/regimes/regime3a_wta.py
+
+```py
+from src.IQL.learning.update import update
+from src.IQL.backends.exact import ExactBackend
+import pickle
+
+
+class WinnerTakeAll:
+    """
+    Regime 3-A: Winner-Takes-All IQC (α-scaled formulation)
+
+    Special case:
+        alpha_correct = 0
+        alpha_wrong   = 1
+    reproduces the original Regime-3A exactly.
+    """
+
+    def __init__(
+        self,
+        memory_bank,
+        eta,
+        backend=ExactBackend(),
+        alpha: float = 0.0,
+        beta: float = 1.0,
+    ):
+        self.memory_bank = memory_bank
+        self.eta = eta
+        self.backend = backend
+
+        # Scaling factors
+        self.alpha_correct = alpha
+        self.alpha_wrong = beta
+
+        self.num_updates = 0
+
+        self.history = {
+            "winner_idx": [],
+            "scores": [],
+            "updates": [],
+            "alpha": [],
+        }
+
+    def step(self, psi, y):
+        # ----------------------------------
+        # Winner selection (unchanged)
+        # ----------------------------------
+        idx, score = self.memory_bank.winner(psi)
+        cs = self.memory_bank.class_states[idx]
+
+        # ----------------------------------
+        # Correctness check
+        # ----------------------------------
+        misclassified = (y * score) < 0
+
+        # α-scaling (THIS is the only real change)
+        alpha = self.alpha_wrong if misclassified else self.alpha_correct
+
+        # ----------------------------------
+        # Scaled update (winner only)
+        # ----------------------------------
+        chi_new, updated = update(
+            cs.vector,
+            psi,
+            y,
+            self.eta * alpha,
+            self.backend,
+        )
+
+        if updated:
+            cs.vector = chi_new
+            self.num_updates += 1
+
+        # Prediction (unchanged)
         y_hat = 1 if score >= 0 else -1
 
-        # logging
+        # ----------------------------------
+        # Logging
+        # ----------------------------------
         self.history["winner_idx"].append(idx)
         self.history["scores"].append(score)
         self.history["updates"].append(updated)
+        self.history["alpha"].append(alpha)
 
         return y_hat, idx, updated
 
     def fit(self, X, y):
         correct = 0
-        for x, y in zip(X, y):
-            y_hat, _, _ = self.step(x, y)
-            if y_hat == y:
+        for x, label in zip(X, y):
+            y_hat, _, _ = self.step(x, label)
+            if y_hat == label:
                 correct += 1
         return correct / len(X)
 
-    
     def predict_one(self, X):
         _, score = self.memory_bank.winner(X)
         return 1 if score >= 0 else -1
-    
+
     def predict(self, X):
         return [self.predict_one(x) for x in X]
-    
+
     def save(self, path):
         """
         Save trained memory bank and history.
@@ -1169,6 +1425,8 @@ class WinnerTakeAll:
             "num_updates": self.num_updates,
             "history": self.history,
             "backend": self.backend,
+            "alpha_correct": self.alpha_correct,
+            "alpha_wrong": self.alpha_wrong,
         }
 
         with open(path, "wb") as f:
@@ -1186,13 +1444,15 @@ class WinnerTakeAll:
             memory_bank=payload["memory_bank"],
             eta=payload["eta"],
             backend=payload["backend"],
+            alpha_correct=payload.get("alpha_correct", 0.0),
+            alpha_wrong=payload.get("alpha_wrong", 1.0),
         )
 
-        # restore training statistics
         obj.num_updates = payload["num_updates"]
         obj.history = payload["history"]
 
         return obj
+
 ```
 
 ## File: src/IQL/regimes/regime2_online.py
@@ -1384,16 +1644,24 @@ import os
 import numpy as np
 from tqdm import tqdm
 from src.IQL.backends.exact import ExactBackend
+from src.IQL.learning.prototype import load_prototypes
 
 class StaticISDOClassifier:
     def __init__(self, proto_dir, K):
         self.proto_dir = proto_dir
         self.K = K
         self.exact = ExactBackend()
-        self.prototypes = {
-            0: [np.load(os.path.join(proto_dir, f"K{K}/class0_proto{i}.npy")) for i in range(K)],
-            1: [np.load(os.path.join(proto_dir, f"K{K}/class1_proto{i}.npy")) for i in range(K)],
-        }
+        protos = load_prototypes(
+            K=K,
+            output_dir=os.path.join(proto_dir, f"K{K}")
+        )
+        # Binary split (ignore labels even if present)
+        self.prototypes = {0: [], 1: []}
+        for p in protos:
+            # class index is encoded in filename order,
+            # OR we can rely on p["label"] if present
+            cls = p["label"] if p["label"] is not None else None
+            self.prototypes[cls].append(p["vector"])
 
     def predict_one(self, psi):
         #A0 = sum(np.vdot(p, psi) for p in self.prototypes[0])
@@ -1984,63 +2252,6 @@ print("QSVM kernel computation complete.")
 
 ```
 
-## File: src/training/test_adaptive_iqc.py
-
-```py
-import os
-import numpy as np
-from sklearn.metrics import accuracy_score
-
-from src.IQL.models.adaptive_iqc import AdaptiveIQC
-from src.utils.paths import load_paths
-
-
-def main():
-    # -------------------------------------------------
-    # Load data
-    # -------------------------------------------------
-    _, PATHS = load_paths()
-    EMBED_DIR = PATHS["embeddings"]
-
-    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))  # ±1
-
-    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-    X_train, y_train = X[train_idx], y[train_idx]
-    X_test, y_test = X[test_idx], y[test_idx]
-
-    # quantum-safe normalization
-    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
-    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
-
-    # -------------------------------------------------
-    # Train AdaptiveIQC
-    # -------------------------------------------------
-    model = AdaptiveIQC(
-        K_init=3,
-        eta=0.1,
-        percentile=5,
-        consolidate=True,
-    )
-
-    model.fit(X_train, y_train)
-
-    # -------------------------------------------------
-    # Evaluate
-    # -------------------------------------------------
-    y_pred = model.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-
-    print("✅ AdaptiveIQC Test Accuracy:", round(acc, 4))
-
-
-if __name__ == "__main__":
-    main()
-
-```
-
 ## File: src/training/verify_consistency.py
 
 ```py
@@ -2325,7 +2536,7 @@ def main():
     # Train Fixed-Memory IQC
     # -------------------------------------------------
     K = 1
-    model = FixedMemoryIQC(K=K, eta=0.1)
+    model = FixedMemoryIQC(K=K, eta=0.1)#, alpha=0.3, beta=1.5)
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
@@ -2678,6 +2889,245 @@ Loaded train embeddings: (3500, 32)
 Final accuracy: 0.8562857142857143
 Training stats: {'mean_margin': 0.14930659062683652, 'min_margin': -0.7069261085786833, 'num_updates': 503, 'update_rate': 0.1437142857142857}
 """
+```
+
+## File: src/training/protocol_adaptive_pruning_regime4b/test_regime4b_pruning.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.utils.label_utils import ensure_polar
+from src.IQL.learning.class_state import ClassState
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.regimes.regime3b_responsible import Regime3BResponsible
+from src.IQL.regimes.regime4b_pruning import Regime4BPruning
+
+
+def main():
+    print("\n🚀 Testing Regime-4B (EMA-Based Pruning)\n")
+
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
+
+    y_train = ensure_polar(y_train)
+    y_test = ensure_polar(y_test)
+
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # -------------------------------------------------
+    # Initialize memory with extra capacity
+    # -------------------------------------------------
+    backend = ExactBackend()
+    class_states = []
+
+    for cls in [-1, +1]:
+        idxs = np.where(y_train == cls)[0][:4]  # 4 per class
+        for idx in idxs:
+            chi = X_train[idx].astype(np.complex128)
+            chi /= np.linalg.norm(chi)
+            class_states.append(
+                ClassState(chi, backend=backend, label=cls)
+            )
+
+    memory_bank = MemoryBank(class_states)
+
+    print("Initial memory size:", len(memory_bank.class_states))
+
+    # -------------------------------------------------
+    # Regime-3B (learning)
+    # -------------------------------------------------
+    learner = Regime3BResponsible(
+        memory_bank=memory_bank,
+        eta=0.1,
+        alpha_correct=0.0,
+        alpha_wrong=1.0,
+        tau=0.1,
+    )
+
+    # -------------------------------------------------
+    # Regime-4B (pruning)
+    # -------------------------------------------------
+    pruner = Regime4BPruning(
+        memory_bank=memory_bank,
+        tau_harm=-0.15,
+        min_age=200,
+        min_per_class=1,
+        prune_interval=200,
+    )
+
+    # -------------------------------------------------
+    # Training loop
+    # -------------------------------------------------
+    for step, (psi, label) in enumerate(zip(X_train, y_train)):
+        learner.step(psi, label)
+
+        # update metadata
+        memory_bank.increment_age()
+        memory_bank.update_harm_ema(
+            psi,
+            tau_responsible=0.1,
+            beta=0.98,
+        )
+
+        pruned = pruner.step()
+
+        if pruned:
+            print(
+                f"Step {step}: pruned {len(pruned)} memories "
+                f"(current size = {len(memory_bank.class_states)})"
+            )
+
+    # -------------------------------------------------
+    # Evaluation
+    # -------------------------------------------------
+    y_pred = [learner.predict_one(x) for x in X_test]
+    test_acc = accuracy_score(y_test, y_pred)
+
+    print("\n=== Evaluation ===")
+    print(f"Test Accuracy     : {test_acc:.4f}")
+    print(f"Final Memory Size : {len(memory_bank.class_states)}")
+
+    print("\n=== Pruning Summary ===")
+    print(pruner.summary())
+
+    print("\n✅ Regime-4B pruning test completed.\n")
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+## File: src/training/protocol_adaptive_regime4A/test_regime4a.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.utils.label_utils import ensure_polar
+from src.IQL.learning.class_state import ClassState
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
+from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
+
+
+def main():
+    print("\n🚀 Testing Regime-4A (Coverage-Based Adaptive Memory)\n")
+
+    # -------------------------------------------------
+    # Load data
+    # -------------------------------------------------
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+    test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test,  y_test  = X[test_idx],  y[test_idx]
+
+    y_train = ensure_polar(y_train)
+    y_test  = ensure_polar(y_test)
+
+    # Defensive normalization (should already be true)
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test  /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    print(f"Train samples: {len(X_train)}")
+    print(f"Test samples : {len(X_test)}")
+
+    # -------------------------------------------------
+    # Initialize memory bank (bootstrap like Regime-3A)
+    # -------------------------------------------------
+    backend = ExactBackend()
+
+    # Simple bootstrap: one memory per class
+    class_states = []
+
+    for cls in [-1, +1]:
+        idx = np.where(y_train == cls)[0][0]
+        chi0 = X_train[idx].copy()
+        chi0 /= np.linalg.norm(chi0)
+        class_states.append(ClassState(chi0, backend=backend))
+
+    memory_bank = MemoryBank(class_states)
+
+    print("Initial memory size:", len(memory_bank.class_states))
+
+    # -------------------------------------------------
+    # Train Regime-4A
+    # -------------------------------------------------
+    model = Regime4ASpawn(
+        memory_bank=memory_bank,
+        eta=0.1,
+        backend=backend,
+        delta_cover=0.2,
+        spawn_cooldown=100,
+        min_polarized_per_class=1,
+    )
+
+    model.fit(X_train, y_train)
+
+    print("\n=== Regime-4A Training Summary ===")
+    print(model.summary())
+
+    # -------------------------------------------------
+    # Inference (Regime-3B style)
+    # -------------------------------------------------
+    classifier = WeightedVoteClassifier(memory_bank)
+
+    y_pred = [classifier.predict(x) for x in X_test]
+    acc = accuracy_score(y_test, y_pred)
+
+    print("\n=== Regime-4A Evaluation ===")
+    print(f"Test Accuracy     : {acc:.4f}")
+    print(f"Final Memory Size : {len(memory_bank.class_states)}")
+
+    # -------------------------------------------------
+    # Sanity checks
+    # -------------------------------------------------
+    print("\n=== Sanity Checks ===")
+
+    actions = model.history["action"]
+    num_spawned = actions.count("spawned")
+    num_updated = actions.count("updated")
+
+    print(f"Spawn events  : {num_spawned}")
+    print(f"Update events : {num_updated}")
+
+    if num_spawned == 0:
+        print("⚠️  No memories spawned — try lowering delta_cover")
+    elif len(memory_bank.class_states) > 50:
+        print("⚠️  Memory may be growing too fast")
+    else:
+        print("✅ Memory growth appears controlled")
+
+    print("\n✅ Regime-4A test completed successfully.\n")
+
+
+if __name__ == "__main__":
+    main()
+
 ```
 
 ## File: src/training/protocol_static/evaluate_isdo_k_sweep.py
@@ -3252,235 +3702,83 @@ plt.show()
 
 ```
 
-## File: src/training/protocol_adaptive/consolidate_memory.py
+## File: src/training/protocol_fixed_regime3b_responsible/test_regime3b_egime3b_responsible.py
 
 ```py
 import os
 import numpy as np
+from sklearn.metrics import accuracy_score
 
 from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-from src.IQL.encoding.embedding_to_state import embedding_to_state
-from src.IQL.regimes.regime3a_wta import WinnerTakeAll
-from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
-from src.IQL.backends.exact import ExactBackend
-from src.IQL.learning.memory_bank import MemoryBank
-import pickle
-
-# -------------------------------------------------
-# Reproducibility
-# -------------------------------------------------
-set_seed(42)
-
-
-# -------------------------------------------------
-# Load paths
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-os.makedirs(EMBED_DIR, exist_ok=True)
-
-
-# -------------------------------------------------
-# Load embeddings (TRAIN SPLIT)
-# -------------------------------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-# -------------------------------------------------
-# 🔒 LOAD MEMORY BANK FROM REGIME 3-C
-# -------------------------------------------------
-# IMPORTANT:
-# This must be the SAME memory_bank produced by Regime 3-C
-
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
-with open(MEMORY_PATH, "rb") as f:
-    memory_bank = pickle.load(f)
-
-print("Loaded memory bank with",
-      len(memory_bank.class_states),
-      "memories")
-
-
-# -------------------------------------------------
-# 🔁 CONSOLIDATION PHASE (NO GROWTH)
-# -------------------------------------------------
-# Use Regime 3-A trainer:
-# - updates memories
-# - NO spawning logic
-trainer = WinnerTakeAll(
-    memory_bank=memory_bank,
-    eta=0.05,      # slightly smaller eta for stabilization
-    backend=ExactBackend()
-)
-
-acc_train = trainer.fit(X_train, y_train)
-print("Consolidation pass accuracy:", acc_train)
-print("Updates during consolidation:", trainer.num_updates)
-
-
-# -------------------------------------------------
-# 📊 FINAL EVALUATION (Regime 3-B inference)
-# -------------------------------------------------
-classifier = WeightedVoteClassifier(memory_bank)
-
-correct = 0
-for x, y in zip(X_train, y_train):
-    if classifier.predict(x) == y:
-        correct += 1
-
-final_acc = correct / len(X_train)
-print("FINAL Regime 3-C accuracy:", final_acc)
-
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Loaded memory bank with 22 memories
-Consolidation pass accuracy: 0.8048571428571428
-Updates during consolidation: 683
-FINAL Regime 3-C accuracy: 0.884
-"""
-
-```
-
-## File: src/training/protocol_adaptive/train_adaptive_memory.py
-
-```py
-import os
-import numpy as np
-from collections import Counter
-
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
+from src.utils.label_utils import ensure_polar
 from src.IQL.learning.class_state import ClassState
-from src.IQL.encoding.embedding_to_state import embedding_to_state
 from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.backends.exact import ExactBackend
-
-from src.IQL.regimes.regime3c_adaptive import AdaptiveMemory
-from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
-import pickle
+from src.IQL.regimes.regime3b_responsible import Regime3BResponsible
 
 
-# -------------------------------------------------
-# Reproducibility
-# -------------------------------------------------
-set_seed(42)
+def main():
+    print("\n🚀 Testing Regime-3B (Responsible-Set)\n")
+
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
+
+    y_train = ensure_polar(y_train)
+    y_test = ensure_polar(y_test)
+
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # Initial polarized memory
+    backend = ExactBackend()
+    class_states = []
+
+    for cls in [-1, +1]:
+        idx = np.where(y_train == cls)[0][0]
+        chi = X_train[idx].astype(np.complex128)
+        chi /= np.linalg.norm(chi)
+        class_states.append(
+            ClassState(chi, backend=backend, label=cls)
+        )
+
+    memory_bank = MemoryBank(class_states)
+
+    model = Regime3BResponsible(
+        memory_bank=memory_bank,
+        eta=0.1,
+        alpha_correct=0.0,
+        alpha_wrong=1.0,
+        tau=0.1,
+    )
+
+    train_acc = model.fit(X_train, y_train)
+
+    print("\n=== Training Summary ===")
+    print(model.summary())
+    print(f"Train Accuracy : {train_acc:.4f}")
+
+    y_pred = model.predict(X_test)
+    test_acc = accuracy_score(y_test, y_pred)
+
+    print("\n=== Evaluation ===")
+    print(f"Test Accuracy  : {test_acc:.4f}")
+    print(f"Memory Size   : {len(memory_bank.class_states)}")
+
+    print("\n✅ Regime-3B (Responsible-Set) test completed.\n")
 
 
-# -------------------------------------------------
-# Load paths
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
+if __name__ == "__main__":
+    main()
 
-os.makedirs(EMBED_DIR, exist_ok=True)
-os.makedirs(PATHS["artifacts"], exist_ok=True)
-
-# -------------------------------------------------
-# Load embeddings (TRAIN SPLIT)
-# -------------------------------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-
-# -------------------------------------------------
-# Initialize memory bank (M = 3)
-# -------------------------------------------------
-d = X_train[0].shape[0]
-
-backend = ExactBackend()
-
-class_states = []
-for _ in range(3):
-    v = np.random.randn(d)
-    v /= np.linalg.norm(v)
-    class_states.append(ClassState(v,backend=backend))
-
-
-
-memory_bank = MemoryBank(
-    class_states=class_states
-)
-
-print("Initial number of memories:", len(memory_bank.class_states))
-
-
-# -------------------------------------------------
-# Train Regime 3-C (percentile-based τ)
-# -------------------------------------------------
-trainer = AdaptiveMemory(
-    memory_bank=memory_bank,
-    eta=0.1,
-    percentile=5,       # τ = 5th percentile of margins
-    tau_abs = -0.121,
-    margin_window=500,   # sliding window for stability
-    backend=backend,
-)
-
-trainer.fit(X_train, y_train)
-
-print("Training finished.")
-print("Number of memories after training:", len(memory_bank.class_states))
-print("Number of spawned memories:", trainer.num_spawns)
-print("Number of updates:", trainer.num_updates)
-
-
-# -------------------------------------------------
-# Evaluate using Regime 3-B inference
-# -------------------------------------------------
-classifier = WeightedVoteClassifier(memory_bank)
-
-correct = 0
-for psi, y in zip(X_train, y_train):
-    if classifier.predict(psi) == y:
-        correct += 1
-
-acc_3c = correct / len(X_train)
-print("Regime 3-C accuracy (3-B inference):", acc_3c)
-
-
-# -------------------------------------------------
-# Optional diagnostics
-# -------------------------------------------------
-print("Final memory count:", len(memory_bank.class_states))
-
-with open(MEMORY_PATH, "wb") as f:
-    pickle.dump(memory_bank, f)
-
-print("Saved Regime 3-C memory bank.")
-
-### output
-"""
-🌱 Global seed set to 42
-Loaded train embeddings: (3500, 32)
-Initial number of memories: 3
-Training finished.
-Number of memories after training: 22
-Number of spawned memories: 19
-Number of updates: 429
-Regime 3-C accuracy (3-B inference): 0.788
-Final memory count: 22
-Saved Regime 3-C memory bank.
-"""
 ```
 
 ## File: src/classical/cnn.py
