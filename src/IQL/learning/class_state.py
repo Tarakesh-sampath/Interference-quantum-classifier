@@ -19,6 +19,8 @@ class ClassState:
         self.vector = normalize(vector.astype(np.complex128))
         self.backend = backend
         self.label = label
+        self.age = 0 
+        self.harm_ema = 0.0 
 
     def score(self, psi: np.ndarray) -> float:
         """

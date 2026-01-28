@@ -10,6 +10,30 @@ class MemoryBank:
             for cs in self.class_states
         ]
 
+    def increment_age(self):
+        """
+        Increment age of all memories by 1.
+        Call once per training step.
+        """
+        for cs in self.class_states:
+            cs.age += 1
+
+    def update_harm_ema(self, psi, tau_responsible, beta):
+        """
+        Update harm EMA for responsible memories.
+
+        Args:
+            psi: input state
+            tau_responsible: responsibility threshold
+            beta: EMA decay factor
+        """
+        scores = self.scores(psi)
+
+        for cs, s in zip(self.class_states, scores):
+            if abs(s) > tau_responsible and cs.label is not None:
+                harm = cs.label * s
+                cs.harm_ema = beta * cs.harm_ema + (1 - beta) * harm
+
     def winner(self, psi):
         scores = self.scores(psi)
         idx = int(max(range(len(scores)), key=lambda i: abs(scores[i])))
@@ -23,3 +47,12 @@ class MemoryBank:
         """Remove memory at index idx."""
         if 0 <= idx < len(self.class_states):
             del self.class_states[idx]
+    
+    def prune(self, prune_states):
+        """
+        Remove given ClassState objects from the memory bank.
+        """
+        self.class_states = [
+            cs for cs in self.class_states
+            if cs not in prune_states
+        ]
