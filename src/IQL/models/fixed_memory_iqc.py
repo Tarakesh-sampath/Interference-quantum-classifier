@@ -24,10 +24,12 @@ class FixedMemoryIQC:
     4. Freeze memory
     """
 
-    def __init__(self, K: int, eta: float = 0.1, backend=None):
+    def __init__(self, K: int, eta: float = 0.1, backend=None, alpha: float = 0, beta: float = 1):
         self.K = K
         self.eta = eta
         self.backend = backend or ExactBackend()
+        self.alpha = alpha
+        self.beta = beta
 
         self.memory_bank = None
         self.trainer = None
@@ -85,7 +87,9 @@ class FixedMemoryIQC:
         self.trainer = WinnerTakeAll(
             memory_bank=self.memory_bank,
             eta=self.eta,
-            backend=self.backend
+            backend=self.backend,
+            alpha = self.alpha,
+            beta = self.beta
         )
         self.trainer.fit(X, y)
 

@@ -1,0 +1,112 @@
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.utils.label_utils import ensure_polar
+from src.IQL.learning.class_state import ClassState
+from src.IQL.learning.memory_bank import MemoryBank
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.regimes.regime4_adaptive import AdaptiveMemoryRegime4
+from src.IQL.inference.weighted_vote_classifier import WeightedVoteClassifier
+
+
+def main():
+    print("\n🚀 Testing Regime-4A (Coverage-Based Adaptive Memory)\n")
+
+    # -------------------------------------------------
+    # Load data
+    # -------------------------------------------------
+    _, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
+
+    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+    test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test,  y_test  = X[test_idx],  y[test_idx]
+
+    y_train = ensure_polar(y_train)
+    y_test  = ensure_polar(y_test)
+
+    # Defensive normalization (should already be true)
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test  /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    print(f"Train samples: {len(X_train)}")
+    print(f"Test samples : {len(X_test)}")
+
+    # -------------------------------------------------
+    # Initialize memory bank (bootstrap like Regime-3A)
+    # -------------------------------------------------
+    backend = ExactBackend()
+
+    # Simple bootstrap: one memory per class
+    class_states = []
+
+    for cls in [-1, +1]:
+        idx = np.where(y_train == cls)[0][0]
+        chi0 = X_train[idx].copy()
+        chi0 /= np.linalg.norm(chi0)
+        class_states.append(ClassState(chi0, backend=backend))
+
+    memory_bank = MemoryBank(class_states)
+
+    print("Initial memory size:", len(memory_bank.class_states))
+
+    # -------------------------------------------------
+    # Train Regime-4A
+    # -------------------------------------------------
+    model = AdaptiveMemoryRegime4(
+        memory_bank=memory_bank,
+        eta=0.1,
+        backend=backend,
+        delta_cover=0.2,
+        spawn_cooldown=100,
+        min_polarized_per_class=1,
+    )
+
+    model.fit(X_train, y_train)
+
+    print("\n=== Regime-4A Training Summary ===")
+    print(model.summary())
+
+    # -------------------------------------------------
+    # Inference (Regime-3B style)
+    # -------------------------------------------------
+    classifier = WeightedVoteClassifier(memory_bank)
+
+    y_pred = [classifier.predict(x) for x in X_test]
+    acc = accuracy_score(y_test, y_pred)
+
+    print("\n=== Regime-4A Evaluation ===")
+    print(f"Test Accuracy     : {acc:.4f}")
+    print(f"Final Memory Size : {len(memory_bank.class_states)}")
+
+    # -------------------------------------------------
+    # Sanity checks
+    # -------------------------------------------------
+    print("\n=== Sanity Checks ===")
+
+    actions = model.history["action"]
+    num_spawned = actions.count("spawned")
+    num_updated = actions.count("updated")
+
+    print(f"Spawn events  : {num_spawned}")
+    print(f"Update events : {num_updated}")
+
+    if num_spawned == 0:
+        print("⚠️  No memories spawned — try lowering delta_cover")
+    elif len(memory_bank.class_states) > 50:
+        print("⚠️  Memory may be growing too fast")
+    else:
+        print("✅ Memory growth appears controlled")
+
+    print("\n✅ Regime-4A test completed successfully.\n")
+
+
+if __name__ == "__main__":
+    main()

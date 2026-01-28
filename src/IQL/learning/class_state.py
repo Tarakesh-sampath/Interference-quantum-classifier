@@ -15,9 +15,10 @@ class ClassState:
     Invariant: ||chi|| = 1 always.
     """
 
-    def __init__(self, vector: np.ndarray ,backend: InterferenceBackend):
+    def __init__(self, vector: np.ndarray, label: int = None, backend: InterferenceBackend = None):
         self.vector = normalize(vector.astype(np.complex128))
         self.backend = backend
+        self.label = label
 
     def score(self, psi: np.ndarray) -> float:
         """

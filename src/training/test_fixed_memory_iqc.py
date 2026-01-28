@@ -35,7 +35,7 @@ def main():
     # Train Fixed-Memory IQC
     # -------------------------------------------------
     K = 1
-    model = FixedMemoryIQC(K=K, eta=0.1)
+    model = FixedMemoryIQC(K=K, eta=0.1)#, alpha=0.3, beta=1.5)
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
