@@ -118,14 +118,16 @@ class Regime4ASpawn:
                 # -------------------------------------
                 # Polarized → agnostic transition
                 # -------------------------------------
+                # Polarized → agnostic transition
                 if self.polarized_count[y] < self.min_polarized_per_class:
                     chi_new = y * residual
                     self.polarized_count[y] += 1
+                    label = y  # ✅ SET LABEL for polarized memories
                 else:
                     chi_new = residual
+                    label = None  # Agnostic memories have no label
 
-                self.memory_bank.add_memory(chi_new, self.backend)
-
+                self.memory_bank.add_memory(chi_new, self.backend, label=label)  # ✅ PASS LABEL
                 self.steps_since_spawn = 0
                 self.num_spawns += 1
 
