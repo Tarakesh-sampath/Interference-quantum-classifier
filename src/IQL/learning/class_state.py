@@ -15,7 +15,7 @@ class ClassState:
     Invariant: ||chi|| = 1 always.
     """
 
-    def __init__(self, vector: np.ndarray, label: int = None, backend: InterferenceBackend = None):
+    def __init__(self, vector: np.ndarray, label: int, backend: InterferenceBackend = None):
         self.vector = normalize(vector.astype(np.complex128))
         self.backend = backend
         self.label = label

@@ -42,7 +42,7 @@ def main():
         chi0 += label * psi
     chi0 = chi0 / np.linalg.norm(chi0)
 
-    class_state = ClassState(chi0,backend=ExactBackend())
+    class_state = ClassState(chi0,backend=ExactBackend(),label=+1)
     trainer = OnlinePerceptron(class_state, eta=0.1)
 
     acc = trainer.fit(X_train,y_train)

@@ -47,7 +47,7 @@ for psi, label in zip(X_train[:10], y_train[:10]):
     chi0 += label * psi
 chi0 = chi0 / np.linalg.norm(chi0)
 
-class_state = ClassState(chi0)
+class_state = ClassState(chi0, label=+1)
 online = OnlinePerceptronTrainer(class_state, eta=0.1)
 online.fit(X_train, y_train)
 results["IQC_Online"] = accuracy_score(y_test, online.predict(X_test))

@@ -125,7 +125,7 @@ class Regime4ASpawn:
                     label = y  # ✅ SET LABEL for polarized memories
                 else:
                     chi_new = residual
-                    label = None  # Agnostic memories have no label
+                    label = y  # Agnostic memories now also carry a label for consistency
 
                 self.memory_bank.add_memory(chi_new, self.backend, label=label)  # ✅ PASS LABEL
                 self.steps_since_spawn = 0

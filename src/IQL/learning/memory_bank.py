@@ -40,14 +40,14 @@ class MemoryBank:
         #idx = int(max(range(len(scores)), key=lambda i: scores[i])) ## causes lower score ??
         return idx, scores[idx]
 
-    def add_memory(self, chi_vector, backend, label=None):
+    def add_memory(self, chi_vector, backend, label: int):
         """
         Add a new memory to the bank.
         
         Args:
             chi_vector: quantum state vector
             backend: interference backend
-            label: class label (optional, but recommended for pruning)
+            label: class label (mandatory)
         """
         self.class_states.append(ClassState(chi_vector, backend=backend, label=label))
 
