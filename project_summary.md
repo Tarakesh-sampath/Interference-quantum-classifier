@@ -59,14 +59,10 @@ measurement-free-quantum-classifier/
             compute_qsvm_kernel.py
             __init__.py
         training/
-            verify_consistency.py
-            run_final_comparison.py
-            compare_best_iqc_vs_classical.py
             test_fixed_memory_iqc.py
             validate_backends.py
             test_static_isdo_model.py
             test_adaptive_memory_trainer.py
-            compare_iqc_algorithms.py
             protocol_online/
                 train_perceptron.py
             protocol_adaptive_pruning_regime4b/
@@ -286,6 +282,8 @@ class StaticISDOModel:
 # src/IQL/training/adaptive_memory_trainer.py
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+
 
 class AdaptiveMemoryModel:
     """
@@ -320,6 +318,63 @@ class AdaptiveMemoryModel:
             "num_pruned": [],
         }
 
+    def consolidate(
+        self,
+        X,
+        y,
+        epochs: int = 5,
+        eta_scale: float = 0.3,
+    ):
+        """
+        Post-adaptive consolidation phase.
+
+        - Freezes memory structure (no spawn, no prune)
+        - Refines existing memories using WTA updates
+        - Improves margins and accuracy
+
+        Args:
+            X: input states
+            y: true labels (polar)
+            epochs: number of consolidation passes
+            eta_scale: scale factor for learning rate
+        """
+
+        print(
+            f"\n🔒 Consolidation phase started "
+            f"(epochs={epochs}, eta_scale={eta_scale})"
+        )
+
+        # Winner-Take-All learner (Regime-3A semantics)
+        consolidator = WinnerTakeAll(
+            memory_bank=self.memory_bank,
+            eta=self.learner.eta * eta_scale,
+            backend=self.learner.backend,
+            alpha=0.0,   # update only on error
+            beta=1.0,    # full update
+        )
+
+        # IMPORTANT: freeze adaptive structure
+        original_spawn = self.learner.step
+        original_prune = self.pruner.step
+
+        try:
+            # Disable spawn & prune
+            self.learner.step = lambda psi, y: "noop"
+            self.pruner.step = lambda: []
+
+            for ep in range(epochs):
+                consolidator.fit(X, y)
+                print(f"  ✔ Consolidation epoch {ep+1}/{epochs}")
+
+        finally:
+            # Restore adaptive behavior
+            self.learner.step = original_spawn
+            self.pruner.step = original_prune
+
+        print("🔓 Consolidation phase completed\n")
+        return self
+
+
     def step(self, psi, y):
         """
         Execute ONE adaptive training step.
@@ -342,6 +397,7 @@ class AdaptiveMemoryModel:
         # -------------------------------------------------
         self.memory_bank.update_harm_ema(
             psi,
+            y_true=y,
             tau_responsible=self.tau_responsible,
             beta=self.beta,
         )
@@ -655,7 +711,7 @@ class MemoryBank:
         for cs in self.class_states:
             cs.age += 1
 
-    def update_harm_ema(self, psi, tau_responsible, beta):
+    def update_harm_ema(self, psi,y_true, tau_responsible, beta):
         """
         Update harm EMA for responsible memories.
 
@@ -668,7 +724,7 @@ class MemoryBank:
 
         for cs, s in zip(self.class_states, scores):
             if abs(s) > tau_responsible and cs.label is not None:
-                harm = cs.label * s
+                harm = -y_true * s
                 cs.harm_ema = beta * cs.harm_ema + (1 - beta) * harm
 
     def winner(self, psi):
@@ -2366,244 +2422,6 @@ print("QSVM kernel computation complete.")
 
 ```
 
-## File: src/training/verify_consistency.py
-
-```py
-import numpy as np
-from src.IQL.learning.class_state import ClassState
-from src.IQL.learning.memory_bank import MemoryBank
-from src.IQL.backends.exact import ExactBackend
-from src.IQL.regimes.regime2_online import OnlinePerceptron
-from src.IQL.regimes.regime3a_wta import WinnerTakeAll
-
-def test_consistency():
-    print("Running consistency tests...")
-    
-    # 1. Backend
-    backend = ExactBackend()
-    
-    # 2. ClassState
-    vec = np.array([1, 0, 0, 0], dtype=np.complex128)
-    cs = ClassState(vec, label=+1, backend=backend)
-    print("ClassState initialized.")
-    
-    psi = np.array([1, 0, 0, 0], dtype=np.complex128)
-    score = cs.score(psi)
-    print(f"ClassState score: {score}")
-    assert np.isclose(score, 1.0)
-    
-    # 3. MemoryBank
-    mb = MemoryBank([cs])
-    print("MemoryBank initialized.")
-    scores = mb.scores(psi)
-    print(f"MemoryBank scores: {scores}")
-    assert np.isclose(scores[0], 1.0)
-    
-    # 4. Models
-    # OnlinePerceptron
-    op = OnlinePerceptron(cs, eta=0.1)
-    y_hat, s, updated = op.step(psi, 1)
-    print(f"OnlinePerceptron step: y_hat={y_hat}, s={s}, updated={updated}")
-    
-    # WinnerTakeAll
-    wta = WinnerTakeAll(mb, eta=0.1, backend=backend)
-    y_hat, idx, updated = wta.step(psi, 1)
-    print(f"WinnerTakeAll step: y_hat={y_hat}, idx={idx}, updated={updated}")
-    
-    print("All basic consistency tests passed!")
-
-if __name__ == "__main__":
-    test_consistency()
-
-```
-
-## File: src/training/run_final_comparison.py
-
-```py
-import os
-import json
-import numpy as np
-from tqdm import tqdm
-from sklearn.metrics import accuracy_score
-from sklearn.svm import SVC
-
-from src.utils.paths import load_paths
-from src.IQL.interference.exact_backend import ExactBackend
-from src.IQL.interference.transition_backend import TransitionBackend
-from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
-
-
-# -------------------------------------------------
-# Config
-# -------------------------------------------------
-INCLUDE_QSVM = False
-K_ISDO = 3   # chosen from K-sweep (best)
-
-# -------------------------------------------------
-# Load paths and data
-# -------------------------------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-PROTO_DIR = PATHS["class_prototypes"]
-LOG_DIR   = PATHS["logs"]
-QSVM_DIR  = os.path.join(PATHS["artifacts"], "qsvm_cache")
-
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-
-test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-X_test = X[test_idx]
-y_test = y[test_idx]
-
-# quantum-safe normalization (already true, but explicit)
-X_test = X_test / np.linalg.norm(X_test, axis=1, keepdims=True)
-
-# Load base prototype once to avoid disk I/O in loops
-chi_single = np.load(os.path.join(PROTO_DIR, "K1/class1_proto0.npy"))
-
-results = {}
-
-# =================================================
-# IQC – Exact (measurement-free)
-# =================================================
-exact_backend = ExactBackend()
-
-print("Evaluating IQC-Exact...")
-y_pred_exact = []
-for psi in tqdm(X_test, desc="IQC Exact"):
-    s = exact_backend.score(chi=chi_single, psi=psi)
-    y_pred_exact.append(1 if s >= 0 else -1)
-
-results["IQC_Exact_Backend"] = accuracy_score(y_test, y_pred_exact)
-
-# =================================================
-# IQC – Transition (circuit B′)
-# =================================================
-transition_backend = TransitionBackend()
-
-print("Evaluating IQC-Transition (Circuit-B')...")
-y_pred_transition = []
-for psi in tqdm(X_test, desc="IQC Transition"):
-    s = transition_backend.score(chi=chi_single, psi=psi)
-    y_pred_transition.append(1 if s >= 0 else -1)
-
-results["IQC_Transition_Backend"] = accuracy_score(y_test, y_pred_transition)
-
-# =================================================
-# ISDO – K-prototype interference ( Exact )
-# =================================================
-isdo = StaticISDOClassifier(PROTO_DIR, K_ISDO)
-print(f"Evaluating ISDO-K (K={K_ISDO})...")
-y_pred_isdo = isdo.predict(X_test)
-results["ISDO_K"] = accuracy_score((y_test + 1) // 2, y_pred_isdo)
-
-# =================================================
-# Fidelity (SWAP test) – load cached result
-# =================================================
-results["Fidelity_SWAP"] = 0.8784  # from evaluate_swap_test_batch.py
-
-# =================================================
-# Classical baselines – load from logs
-# =================================================
-with open(os.path.join(LOG_DIR, "embedding_baseline_results.json")) as f:
-    classical = json.load(f)
-
-for k, v in classical.items():
-    results[k] = v["accuracy"]
-
-# =================================================
-# QSVM (optional)
-# =================================================
-if INCLUDE_QSVM:
-    print("Evaluating QSVM baseline...")
-    try:
-        K_train = np.load(os.path.join(QSVM_DIR, "qsvm_kernel_train.npy"))
-        K_test  = np.load(os.path.join(QSVM_DIR, "qsvm_kernel_test.npy"))
-        y_train = np.load(os.path.join(QSVM_DIR, "y_train_sub.npy"))
-        
-        # Note: SVC expects kernel values, labels should correspond to kernel indices
-        qsvm = SVC(kernel="precomputed")
-        qsvm.fit(K_train, y_train)
-        
-        y_test_sub = np.load(os.path.join(QSVM_DIR, "y_test_sub.npy"))
-        y_pred_qsvm = qsvm.predict(K_test)
-        results["QSVM"] = accuracy_score(y_test_sub, y_pred_qsvm)
-
-    except Exception as e:
-        print(f"QSVM evaluation skipped: {e}")
-        results["QSVM"] = None
-
-# -------------------------------------------------
-# Save
-# -------------------------------------------------
-with open("final_comparison_results.json", "w") as f:
-    json.dump(results, f, indent=2)
-
-print("\n=== FINAL COMPARISON ===")
-for k, v in results.items():
-    if v is not None:
-        print(f"{k:25s}: {v:.4f}")
-    else:
-        print(f"{k:25s}: N/A")
-
-```
-
-## File: src/training/compare_best_iqc_vs_classical.py
-
-```py
-import os
-import json
-import numpy as np
-from sklearn.metrics import accuracy_score
-
-from src.utils.paths import load_paths
-from src.IQL.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
-
-# -----------------------------
-# Load paths
-# -----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-LOG_DIR   = PATHS["logs"]
-
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-X_train, y_train = X[train_idx], y[train_idx]
-X_test,  y_test  = X[test_idx],  y[test_idx]
-
-X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
-X_test  /= np.linalg.norm(X_test, axis=1, keepdims=True)
-
-results = {}
-
-# -----------------------------
-# Best IQC
-# -----------------------------
-adaptive = AdaptiveMemoryTrainer()
-adaptive.fit(X_train, y_train)
-results["IQC_Adaptive"] = accuracy_score(
-    y_test, adaptive.predict(X_test)
-)
-
-# -----------------------------
-# Classical baselines (from logs)
-# -----------------------------
-with open(os.path.join(LOG_DIR, "embedding_baseline_results.json")) as f:
-    classical = json.load(f)
-
-for k, v in classical.items():
-    results[k] = v["accuracy"]
-
-print("\n=== Best IQC vs Classical ===")
-for k, v in results.items():
-    print(f"{k:25s}: {v}")
-
-```
-
 ## File: src/training/test_fixed_memory_iqc.py
 
 ```py
@@ -2856,6 +2674,9 @@ from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
 from src.IQL.models.adaptive_memory_model import AdaptiveMemoryModel
 
+import matplotlib.pyplot as plt
+from collections import Counter
+
 
 def main():
     print("\n🚀 Testing AdaptiveMemoryTrainer (V0)\n")
@@ -2942,6 +2763,16 @@ def main():
     trainer.fit(X_train, y_train)
 
     # -------------------------------------------------
+    # Consolidation phase
+    # -------------------------------------------------
+    trainer.consolidate(
+        X_train,
+        y_train,
+        epochs=5,
+        eta_scale=0.3,
+    )
+
+    # -------------------------------------------------
     # Evaluate
     # -------------------------------------------------
     y_pred = trainer.predict(X_test)
@@ -2956,104 +2787,77 @@ def main():
 
     print("\n✅ AdaptiveMemoryTrainer test completed.\n")
 
+    # -------------------------------------------------
+    # Save adaptive diagnostics
+    # -------------------------------------------------
+    RESULTS_DIR = "results/figures/adaptive"
+    save_adaptive_plots(trainer, memory_bank, RESULTS_DIR)
+
+def save_adaptive_plots(trainer, memory_bank, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+
+    # -------------------------------------------------
+    # 1. Memory size over time
+    # -------------------------------------------------
+    plt.figure(figsize=(6, 4))
+    plt.plot(trainer.history["memory_size"])
+    plt.xlabel("Training step")
+    plt.ylabel("Memory size")
+    plt.title("Adaptive Memory Size Over Time")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "memory_size_over_time.png"))
+    plt.close()
+
+    # -------------------------------------------------
+    # 2. Action distribution
+    # -------------------------------------------------
+    action_counts = Counter(trainer.history["action"])
+
+    plt.figure(figsize=(5, 4))
+    plt.bar(action_counts.keys(), action_counts.values())
+    plt.xlabel("Action type")
+    plt.ylabel("Count")
+    plt.title("Adaptive Actions Distribution")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "action_distribution.png"))
+    plt.close()
+
+    # -------------------------------------------------
+    # 3. Harm EMA distribution
+    # -------------------------------------------------
+    harm = [cs.harm_ema for cs in memory_bank.class_states]
+
+    plt.figure(figsize=(6, 4))
+    plt.hist(harm, bins=20)
+    plt.axvline(x=0.0, linestyle="--")
+    plt.xlabel("Harm EMA")
+    plt.ylabel("Count")
+    plt.title("Harm EMA Distribution (Final)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "harm_ema_distribution.png"))
+    plt.close()
+
+    # -------------------------------------------------
+    # 4. Memory age distribution
+    # -------------------------------------------------
+    ages = [cs.age for cs in memory_bank.class_states]
+
+    plt.figure(figsize=(6, 4))
+    plt.hist(ages, bins=15)
+    plt.xlabel("Memory age")
+    plt.ylabel("Count")
+    plt.title("Memory Age Distribution (Final)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "memory_age_distribution.png"))
+    plt.close()
+
+    print(f"\n📊 Adaptive plots saved to: {out_dir}")
+
 
 if __name__ == "__main__":
     main()
 
-```
-
-## File: src/training/compare_iqc_algorithms.py
-
-```py
-import os
-import numpy as np
-from sklearn.metrics import accuracy_score
-
-from src.utils.paths import load_paths
-from src.IQL.baselines.static_isdo_classifier import StaticISDOClassifier
-from src.IQL.training.online_perceptron_trainer import OnlinePerceptronTrainer
-from src.IQL.training.adaptive_memory_trainer import AdaptiveMemoryTrainer
-from src.IQL.states.class_state import ClassState
-from src.IQL.memory.memory_bank import MemoryBank
-import pickle
-
-# -----------------------------
-# Load data
-# -----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-PROTO_DIR = PATHS["class_prototypes"]
-
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-
-X_train, y_train = X[train_idx], y[train_idx]
-X_test,  y_test  = X[test_idx],  y[test_idx]
-
-X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
-X_test  /= np.linalg.norm(X_test, axis=1, keepdims=True)
-
-results = {}
-
-# -----------------------------
-# Static ISDO
-# -----------------------------
-isdo = StaticISDOClassifier(PROTO_DIR, K=3)
-results["Static_ISDO"] = accuracy_score((y_test + 1)//2, isdo.predict(X_test))
-
-# -----------------------------
-# IQC-Online (Regime-2)
-# -----------------------------
-
-# bootstrap initialization (important!)
-chi0 = np.zeros_like(X_train[0])
-for psi, label in zip(X_train[:10], y_train[:10]):
-    chi0 += label * psi
-chi0 = chi0 / np.linalg.norm(chi0)
-
-class_state = ClassState(chi0, label=+1)
-online = OnlinePerceptronTrainer(class_state, eta=0.1)
-online.fit(X_train, y_train)
-results["IQC_Online"] = accuracy_score(y_test, online.predict(X_test))
-
-# -----------------------------
-# IQC-Adaptive Memory (Regime-3C)
-# -----------------------------
-
-MEMORY_PATH = os.path.join(PATHS["artifacts"], "regime3c_memory.pkl")
-
-with open(MEMORY_PATH, "rb") as f:
-    memory_bank = pickle.load(f)
-
-adaptive = AdaptiveMemoryTrainer(
-    memory_bank=memory_bank,
-    eta=0.1,
-    percentile=5,       # τ = 5th percentile of margins
-    tau_abs = -0.121,
-    margin_window=500
-)
-adaptive.fit(X_train, y_train)
-
-results["IQC_Adaptive"] = accuracy_score(
-    y_test, adaptive.predict(X_test)
-)
-results["Adaptive_Memory_Size"] = adaptive.memory_size()
-
-print("\n=== IQC Algorithm Comparison ===")
-for k, v in results.items():
-    print(f"{k:25s}: {v}")
-
-## output
-"""                                                                                                                                                                             
-=== IQC Algorithm Comparison ===
-Static_ISDO              : 0.8806666666666667
-IQC_Online               : 0.904
-IQC_Adaptive             : 0.56
-Adaptive_Memory_Size     : 45
-""" 
 ```
 
 ## File: src/training/protocol_online/train_perceptron.py
@@ -3213,6 +3017,7 @@ def main():
         memory_bank.increment_age()
         memory_bank.update_harm_ema(
             psi,
+            y_true=label,
             tau_responsible=0.1,
             beta=0.98,
         )
