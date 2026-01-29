@@ -83,6 +83,7 @@ def main():
         memory_bank.increment_age()
         memory_bank.update_harm_ema(
             psi,
+            y_true=label,
             tau_responsible=0.1,
             beta=0.98,
         )

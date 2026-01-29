@@ -1,6 +1,8 @@
 # src/IQL/training/adaptive_memory_trainer.py
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
+from src.IQL.regimes.regime3a_wta import WinnerTakeAll
+
 
 class AdaptiveMemoryModel:
     """
@@ -35,6 +37,63 @@ class AdaptiveMemoryModel:
             "num_pruned": [],
         }
 
+    def consolidate(
+        self,
+        X,
+        y,
+        epochs: int = 5,
+        eta_scale: float = 0.3,
+    ):
+        """
+        Post-adaptive consolidation phase.
+
+        - Freezes memory structure (no spawn, no prune)
+        - Refines existing memories using WTA updates
+        - Improves margins and accuracy
+
+        Args:
+            X: input states
+            y: true labels (polar)
+            epochs: number of consolidation passes
+            eta_scale: scale factor for learning rate
+        """
+
+        print(
+            f"\n🔒 Consolidation phase started "
+            f"(epochs={epochs}, eta_scale={eta_scale})"
+        )
+
+        # Winner-Take-All learner (Regime-3A semantics)
+        consolidator = WinnerTakeAll(
+            memory_bank=self.memory_bank,
+            eta=self.learner.eta * eta_scale,
+            backend=self.learner.backend,
+            alpha=0.0,   # update only on error
+            beta=1.0,    # full update
+        )
+
+        # IMPORTANT: freeze adaptive structure
+        original_spawn = self.learner.step
+        original_prune = self.pruner.step
+
+        try:
+            # Disable spawn & prune
+            self.learner.step = lambda psi, y: "noop"
+            self.pruner.step = lambda: []
+
+            for ep in range(epochs):
+                consolidator.fit(X, y)
+                print(f"  ✔ Consolidation epoch {ep+1}/{epochs}")
+
+        finally:
+            # Restore adaptive behavior
+            self.learner.step = original_spawn
+            self.pruner.step = original_prune
+
+        print("🔓 Consolidation phase completed\n")
+        return self
+
+
     def step(self, psi, y):
         """
         Execute ONE adaptive training step.
@@ -57,6 +116,7 @@ class AdaptiveMemoryModel:
         # -------------------------------------------------
         self.memory_bank.update_harm_ema(
             psi,
+            y_true=y,
             tau_responsible=self.tau_responsible,
             beta=self.beta,
         )

@@ -18,7 +18,7 @@ class MemoryBank:
         for cs in self.class_states:
             cs.age += 1
 
-    def update_harm_ema(self, psi, tau_responsible, beta):
+    def update_harm_ema(self, psi,y_true, tau_responsible, beta):
         """
         Update harm EMA for responsible memories.
 
@@ -31,7 +31,7 @@ class MemoryBank:
 
         for cs, s in zip(self.class_states, scores):
             if abs(s) > tau_responsible and cs.label is not None:
-                harm = cs.label * s
+                harm = -y_true * s
                 cs.harm_ema = beta * cs.harm_ema + (1 - beta) * harm
 
     def winner(self, psi):
