@@ -116,6 +116,12 @@ def main():
     # -------------------------------------------------
     RESULTS_DIR = "results/figures/adaptive"
     save_adaptive_plots(trainer, memory_bank, RESULTS_DIR)
+    memory_bank.visualize(
+        qubit=0,
+        title="Adaptive IQC – Memory States (Final Snapshot)",
+        save_path=os.path.join(RESULTS_DIR, "memory_states.png"),
+        show=True,
+    )
 
 def save_adaptive_plots(trainer, memory_bank, out_dir):
     os.makedirs(out_dir, exist_ok=True)
