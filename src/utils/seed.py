@@ -21,5 +21,3 @@ def set_seed(seed: int = 42):
 
     # Extra safety (hash-based ops)
     os.environ["PYTHONHASHSEED"] = str(seed)
-
-    print(f"🌱 Global seed set to {seed}")

@@ -8,34 +8,15 @@ from src.IQL.learning.metrics import summarize_training
 from src.IQL.backends.exact import ExactBackend
 from src.utils.paths import load_paths
 from src.utils.seed import set_seed
+from src.utils.load_data import load_data
 
 # ----------------------------
 # Reproducibility
 # ----------------------------
 set_seed(42)
 
-# ----------------------------
-# Load paths
-# ----------------------------
-_, PATHS = load_paths()
-EMBED_DIR = PATHS["embeddings"]
-
-os.makedirs(EMBED_DIR, exist_ok=True)
-
-# ----------------------------
-# Load embeddings (TRAIN ONLY)
-# ----------------------------
-X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-y = np.load(os.path.join(EMBED_DIR, "val_labels_polar.npy"))
-train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-
-X_train = X[train_idx]
-y_train = y[train_idx]
-
-print("Loaded train embeddings:", X_train.shape)
-
-
 def main():
+    X_train, X_test, y_train, y_test = load_data("polar")
 
     chi0 = np.zeros_like(X_train[0])
     for psi, label in zip(X_train[:10], y_train[:10]):

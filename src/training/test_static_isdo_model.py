@@ -1,28 +1,14 @@
-import os
 import numpy as np
 from sklearn.metrics import accuracy_score
 
-from src.utils.paths import load_paths
+from src.utils.load_data import load_data
 from src.IQL.models.static_isdo_model import StaticISDOModel
 
 def main():
     # -------------------------------------------------
-    # Load paths
+    # Load data
     # -------------------------------------------------
-    _, PATHS = load_paths()
-    EMBED_DIR = PATHS["embeddings"]
-
-    # -------------------------------------------------
-    # Load embeddings and labels
-    # -------------------------------------------------
-    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
-    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))  # {0,1}
-
-    train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
-    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
-    
-    X_train, y_train = X[train_idx], y[train_idx]
-    X_test, y_test = X[test_idx], y[test_idx]
+    X_train, X_test, y_train, y_test = load_data("polar")
 
     # -------------------------------------------------
     # Sanity: ensure quantum-safe normalization
