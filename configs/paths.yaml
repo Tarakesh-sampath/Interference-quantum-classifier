@@ -8,6 +8,10 @@ paths:
   logs: "results/logs"
   class_prototypes: "results/embeddings/class_prototypes"
   artifacts: "results/artifacts"
+  frames_adaptive: "results/frames/adaptive"
+  video_adaptive: "results/video/adaptive.mp4"
+  frames_fixed: "results/frames/fixed"
+  video_fixed: "results/video/fixed.mp4"
 
 class_count:
   K: 3

@@ -3,3 +3,4 @@ __pycache__
 measurement_free_quantum_classifier.egg-info
 backup*
 results/embeddings/class_prototypes
+results/frames

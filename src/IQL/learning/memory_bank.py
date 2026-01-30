@@ -177,3 +177,5 @@ class MemoryBank:
 
         if show:
             plt.show()
+        else:
+            plt.close(bloch.fig)

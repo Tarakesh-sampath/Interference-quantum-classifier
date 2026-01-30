@@ -47,6 +47,9 @@ measurement-free-quantum-classifier/
                 __init__.py
             baselines/
                 static_isdo_classifier.py
+        scripts/
+            test_adaptive_memory_trainer_with_frames.py
+            frames_to_video.py
         utils/
             common_backup.py
             common.py
@@ -104,6 +107,10 @@ paths:
   logs: "results/logs"
   class_prototypes: "results/embeddings/class_prototypes"
   artifacts: "results/artifacts"
+  frames_adaptive: "results/frames/adaptive"
+  video_adaptive: "results/video/adaptive.mp4"
+  frames_fixed: "results/frames/fixed"
+  video_fixed: "results/video/fixed.mp4"
 
 class_count:
   K: 3
@@ -954,7 +961,8 @@ class StaticISDOModel:
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
 from src.IQL.regimes.regime3a_wta import WinnerTakeAll
-
+from src.utils.paths import load_paths
+import os
 
 class AdaptiveMemoryModel:
     """
@@ -975,6 +983,8 @@ class AdaptiveMemoryModel:
         pruner : Regime4BPruning,           # Regime4BPruning
         tau_responsible: float = 0.1,
         beta: float = 0.98,
+        frames_dir: str = None,
+        fps: int = 50,
     ):
         self.memory_bank = memory_bank
         self.learner = learner
@@ -988,7 +998,8 @@ class AdaptiveMemoryModel:
             "memory_size": [],
             "num_pruned": [],
         }
-
+        self.frames_dir = frames_dir
+        self.FRAME_EVERY = fps
     def consolidate(
         self,
         X,
@@ -1046,7 +1057,7 @@ class AdaptiveMemoryModel:
         return self
 
 
-    def step(self, psi, y):
+    def step(self, psi, y, frames=False):
         """
         Execute ONE adaptive training step.
 
@@ -1083,6 +1094,17 @@ class AdaptiveMemoryModel:
         # STEP 5: bookkeeping
         # -------------------------------------------------
         self.step_count += 1
+
+        if frames:
+            if self.step_count % self.FRAME_EVERY == 0:
+                frame_path = f"{self.frames_dir}/frame_{self.step_count:05d}.png"
+                self.memory_bank.visualize(
+                    qubit=0,
+                    title="Adaptive IQC – Memory States (Final Snapshot)",
+                    save_path=frame_path,
+                show=False,
+            )
+            
         self.history["action"].append(action)
         self.history["memory_size"].append(
             len(self.memory_bank.class_states)
@@ -1095,8 +1117,14 @@ class AdaptiveMemoryModel:
         """
         Online adaptive training loop.
         """
+        if self.frames_dir is None:
+            print("No frames directory specified. Skipping frame saving.")
+            frames = False
+        else:
+            frames = True
+            os.makedirs(self.frames_dir, exist_ok=True)
         for psi, label in zip(X, y):
-            self.step(psi, label)
+            self.step(psi, label,frames)
         return self
 
     def predict(self, X):
@@ -1363,6 +1391,9 @@ if __name__ == "__main__":
 
 ```py
 from src.IQL.learning.class_state import ClassState
+from qiskit.visualization.bloch import Bloch
+import numpy as np
+import matplotlib.pyplot as plt
 
 class MemoryBank:
     def __init__(self, class_states):
@@ -1428,6 +1459,119 @@ class MemoryBank:
             cs for cs in self.class_states
             if cs not in prune_states
         ]
+
+    def visualize(
+        self,
+        qubit: int = 0,
+        title: str | None = None,
+        save_path: str | None = None,
+        show: bool = True,
+    ):
+        """
+        Visualize the MEMORY-BANK-LEVEL geometry on a single Bloch sphere.
+
+        - Points  : individual memory states (projected)
+        - Arrows  : class centroids
+        - Colors  : red = class -1 / 0, blue = class +1 / 1
+        - STATIC snapshot (no learning, no dynamics)
+        """
+
+        if not self.class_states:
+            raise RuntimeError("MemoryBank is empty")
+
+        bloch = Bloch()
+        bloch.vector_color = [] 
+
+        red_pts, blue_pts = [], []
+
+        # --- Pauli matrices ---
+        X = np.array([[0, 1], [1, 0]], dtype=complex)
+        Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+        Z = np.array([[1, 0], [0, -1]], dtype=complex)
+        I = np.eye(2, dtype=complex)
+
+        def pauli_on_qubit(P, q, n):
+            ops = [I] * n
+            ops[q] = P
+            out = ops[0]
+            for op in ops[1:]:
+                out = np.kron(out, op)
+            return out
+
+        # --- Project each memory ---
+        for cs in self.class_states:
+            chi = cs.vector
+            n = int(np.log2(len(chi)))
+            if 2**n != len(chi):
+                raise ValueError("State dimension must be 2^n")
+
+            Xq = pauli_on_qubit(X, qubit, n)
+            Yq = pauli_on_qubit(Y, qubit, n)
+            Zq = pauli_on_qubit(Z, qubit, n)
+
+            v = np.array([
+                float(np.real(np.vdot(chi, Xq @ chi))),
+                float(np.real(np.vdot(chi, Yq @ chi))),
+                float(np.real(np.vdot(chi, Zq @ chi))),
+            ])
+
+            bloch.add_vectors(v)
+            bloch.vector_color.append(
+                "red" if cs.label in [-1, 0] else "blue"
+            )
+
+            if cs.label in [-1, 0]:
+                red_pts.append(v)
+            else:
+                blue_pts.append(v)
+
+        # --- Add centroid arrows ---
+        def add_centroid(vectors, color):
+            """
+            Add a class centroid as an ARROW on the Bloch sphere.
+
+            - vectors : list of Bloch vectors (Nx3)
+            - color   : color for the centroid arrow
+            """
+
+            if len(vectors) == 0:
+                return
+
+            mu = np.mean(vectors, axis=0)
+            norm = np.linalg.norm(mu)
+
+            if norm < 1e-9:
+                return
+
+            # Keep centroid inside Bloch ball
+            mu = mu / max(1.0, norm)
+
+            # --- Temporarily force arrow rendering ---
+            previous_style = bloch.vector_style
+            bloch.vector_style = "arrow"
+
+            bloch.add_vectors(mu)
+            bloch.vector_color.append(color)
+
+            # --- Restore previous style (points) ---
+            bloch.vector_style = previous_style
+
+
+        add_centroid(red_pts, "darkred")
+        add_centroid(blue_pts, "darkblue")
+
+        # --- Title / save / show ---
+        if title:
+            bloch.title = title
+
+        if save_path:
+            bloch.save(save_path)
+
+        if show:
+            plt.show()
+        else:
+            plt.close(bloch.fig)
+
 ```
 
 ## File: src/IQL/learning/__init__.py
@@ -2517,6 +2661,270 @@ class StaticISDOClassifier:
 
 ```
 
+## File: src/scripts/test_adaptive_memory_trainer_with_frames.py
+
+```py
+# src/training/protocol_adaptive/test_adaptive_memory_trainer.py
+
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.utils.load_data import load_data
+
+from src.IQL.learning.class_state import ClassState
+from src.IQL.learning.memory_bank import MemoryBank
+
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
+from src.IQL.regimes.regime4b_pruning import Regime4BPruning
+from src.IQL.models.adaptive_memory_model import AdaptiveMemoryModel
+
+import matplotlib.pyplot as plt
+from collections import Counter
+
+
+def main():
+    print("\n🚀 Testing AdaptiveMemoryTrainer (V0)\n")
+    _ , paths = load_paths()
+    # -------------------------------------------------
+    # Load data
+    # -------------------------------------------------
+    X_train, X_test, y_train, y_test = load_data("polar")
+
+    print(f"Train samples: {len(X_train)}")
+    print(f"Test samples : {len(X_test)}")
+
+    # -------------------------------------------------
+    # Bootstrap initial memory (1 per class)
+    # -------------------------------------------------
+    backend = ExactBackend()
+    class_states = []
+
+    for cls in [-1, +1]:
+        idx = np.where(y_train == cls)[0][0]
+        chi = X_train[idx].astype(np.complex128)
+        chi /= np.linalg.norm(chi)
+        class_states.append(
+            ClassState(chi, label=cls, backend=backend)
+        )
+
+    memory_bank = MemoryBank(class_states)
+    print("Initial memory size:", len(memory_bank.class_states))
+
+    # -------------------------------------------------
+    # Regime-4A (spawn)
+    # -------------------------------------------------
+    learner = Regime4ASpawn(
+        memory_bank=memory_bank,
+        eta=0.1,
+        backend=backend,
+        delta_cover=0.2,
+        spawn_cooldown=100,
+        min_polarized_per_class=1,
+    )
+
+    # -------------------------------------------------
+    # Regime-4B (pruning)
+    # -------------------------------------------------
+    pruner = Regime4BPruning(
+        memory_bank=memory_bank,
+        tau_harm=-0.15,
+        min_age=200,
+        min_per_class=1,
+        prune_interval=200,
+    )
+
+    # -------------------------------------------------
+    # Adaptive trainer
+    # -------------------------------------------------
+    trainer = AdaptiveMemoryModel(
+        memory_bank=memory_bank,
+        learner=learner,
+        pruner=pruner,
+        tau_responsible=0.1,
+        beta=0.98,
+        frames_dir=paths["frames_adaptive"],
+    )
+
+    # -------------------------------------------------
+    # Train
+    # -------------------------------------------------
+    trainer.fit(X_train, y_train)
+
+    # -------------------------------------------------
+    # Consolidation phase
+    # -------------------------------------------------
+    trainer.consolidate(
+        X_train,
+        y_train,
+        epochs=5,
+        eta_scale=0.3,
+    )
+
+    # -------------------------------------------------
+    # Evaluate
+    # -------------------------------------------------
+    y_pred = trainer.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+
+    print("\n=== Adaptive Trainer Summary ===")
+    print(trainer.summary())
+
+    print("\n=== Evaluation ===")
+    print(f"Test Accuracy      : {acc:.4f}")
+    print(f"Final Memory Size  : {len(memory_bank.class_states)}")
+
+    print("\n✅ AdaptiveMemoryTrainer test completed.\n")
+
+    # -------------------------------------------------
+    # Save adaptive diagnostics
+    # -------------------------------------------------
+    RESULTS_DIR = paths["frames_adaptive"][:-9]
+    #save_adaptive_plots(trainer, memory_bank, RESULTS_DIR)
+    memory_bank.visualize(qubit=0,title="Adaptive IQC – Memory States (Final Snapshot)",save_path=os.path.join(RESULTS_DIR, "memory_states.png"),show=True,)
+
+def save_adaptive_plots(trainer, memory_bank, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+
+    # -------------------------------------------------
+    # 1. Memory size over time
+    # -------------------------------------------------
+    plt.figure(figsize=(6, 4))
+    plt.plot(trainer.history["memory_size"])
+    plt.xlabel("Training step")
+    plt.ylabel("Memory size")
+    plt.title("Adaptive Memory Size Over Time")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "memory_size_over_time.png"))
+    plt.close()
+
+    # -------------------------------------------------
+    # 2. Action distribution
+    # -------------------------------------------------
+    action_counts = Counter(trainer.history["action"])
+
+    plt.figure(figsize=(5, 4))
+    plt.bar(action_counts.keys(), action_counts.values())
+    plt.xlabel("Action type")
+    plt.ylabel("Count")
+    plt.title("Adaptive Actions Distribution")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "action_distribution.png"))
+    plt.close()
+
+    # -------------------------------------------------
+    # 3. Harm EMA distribution
+    # -------------------------------------------------
+    harm = [cs.harm_ema for cs in memory_bank.class_states]
+
+    plt.figure(figsize=(6, 4))
+    plt.hist(harm, bins=20)
+    plt.axvline(x=0.0, linestyle="--")
+    plt.xlabel("Harm EMA")
+    plt.ylabel("Count")
+    plt.title("Harm EMA Distribution (Final)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "harm_ema_distribution.png"))
+    plt.close()
+
+    # -------------------------------------------------
+    # 4. Memory age distribution
+    # -------------------------------------------------
+    ages = [cs.age for cs in memory_bank.class_states]
+
+    plt.figure(figsize=(6, 4))
+    plt.hist(ages, bins=15)
+    plt.xlabel("Memory age")
+    plt.ylabel("Count")
+    plt.title("Memory Age Distribution (Final)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "memory_age_distribution.png"))
+    plt.close()
+
+    print(f"\n📊 Adaptive plots saved to: {out_dir}")
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+## File: src/scripts/frames_to_video.py
+
+```py
+# scripts/frames_to_video.py
+import cv2
+import glob
+import os
+from src.utils.paths import load_paths
+
+def frames_to_video(
+    frames_dir: str,
+    output_path: str,
+    fps: int = 15,
+    pattern: str = "frame_*.png",
+):
+    """
+    Convert saved Bloch-sphere frames into a video.
+
+    Parameters
+    ----------
+    frames_dir : str
+        Directory containing frame images.
+    output_path : str
+        Path to output video (e.g. .mp4).
+    fps : int
+        Frames per second.
+    pattern : str
+        Glob pattern for frame files.
+    """
+    frame_paths = sorted(glob.glob(os.path.join(frames_dir, pattern)))
+
+    if not frame_paths:
+        raise RuntimeError("No frames found to convert into video.")
+
+    # Read first frame to get dimensions
+    first = cv2.imread(frame_paths[0])
+    if first is None:
+        raise RuntimeError("Failed to read first frame.")
+
+    height, width, _ = first.shape
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    video = cv2.VideoWriter(
+        output_path,
+        cv2.CAP_FFMPEG,
+        fourcc,
+        fps,
+        (width, height),
+    )
+
+    for path in frame_paths:
+        img = cv2.imread(path)
+        if img is None:
+            raise RuntimeError(f"Failed to read frame: {path}")
+        video.write(img)
+
+    video.release()
+    print(f"✅ Video written to: {output_path}")
+
+
+if __name__ == "__main__":
+    _ , path = load_paths()
+    frames_dir = path["frames_adaptive"]
+    output_path = path["video_adaptive"]
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    frames_to_video(
+        frames_dir=frames_dir,
+        output_path=output_path,
+        fps=15,
+    )
+
+```
+
 ## File: src/utils/common_backup.py
 
 ```py
@@ -3466,6 +3874,12 @@ def main():
     # -------------------------------------------------
     RESULTS_DIR = "results/figures/adaptive"
     save_adaptive_plots(trainer, memory_bank, RESULTS_DIR)
+    memory_bank.visualize(
+        qubit=0,
+        title="Adaptive IQC – Memory States (Final Snapshot)",
+        save_path=os.path.join(RESULTS_DIR, "memory_states.png"),
+        show=True,
+    )
 
 def save_adaptive_plots(trainer, memory_bank, out_dir):
     os.makedirs(out_dir, exist_ok=True)

@@ -2,7 +2,8 @@
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
 from src.IQL.regimes.regime3a_wta import WinnerTakeAll
-
+from src.utils.paths import load_paths
+import os
 
 class AdaptiveMemoryModel:
     """
@@ -23,6 +24,8 @@ class AdaptiveMemoryModel:
         pruner : Regime4BPruning,           # Regime4BPruning
         tau_responsible: float = 0.1,
         beta: float = 0.98,
+        frames_dir: str = None,
+        fps: int = 50,
     ):
         self.memory_bank = memory_bank
         self.learner = learner
@@ -36,7 +39,8 @@ class AdaptiveMemoryModel:
             "memory_size": [],
             "num_pruned": [],
         }
-
+        self.frames_dir = frames_dir
+        self.FRAME_EVERY = fps
     def consolidate(
         self,
         X,
@@ -94,7 +98,7 @@ class AdaptiveMemoryModel:
         return self
 
 
-    def step(self, psi, y):
+    def step(self, psi, y, frames=False):
         """
         Execute ONE adaptive training step.
 
@@ -131,6 +135,17 @@ class AdaptiveMemoryModel:
         # STEP 5: bookkeeping
         # -------------------------------------------------
         self.step_count += 1
+
+        if frames:
+            if self.step_count % self.FRAME_EVERY == 0:
+                frame_path = f"{self.frames_dir}/frame_{self.step_count:05d}.png"
+                self.memory_bank.visualize(
+                    qubit=0,
+                    title="Adaptive IQC – Memory States (Final Snapshot)",
+                    save_path=frame_path,
+                show=False,
+            )
+            
         self.history["action"].append(action)
         self.history["memory_size"].append(
             len(self.memory_bank.class_states)
@@ -143,8 +158,14 @@ class AdaptiveMemoryModel:
         """
         Online adaptive training loop.
         """
+        if self.frames_dir is None:
+            print("No frames directory specified. Skipping frame saving.")
+            frames = False
+        else:
+            frames = True
+            os.makedirs(self.frames_dir, exist_ok=True)
         for psi, label in zip(X, y):
-            self.step(psi, label)
+            self.step(psi, label,frames)
         return self
 
     def predict(self, X):
