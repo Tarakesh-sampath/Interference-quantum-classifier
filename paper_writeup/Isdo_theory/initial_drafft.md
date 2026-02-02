@@ -1,13 +1,4 @@
-Got it. I’ll now act **strictly as a college student research writing assistant (IELTS ~6.5)** and produce a **full IEEE-style draft for *Paper 1*** with **simple, original language**, clear structure, and **explicit placeholders for figures, flowcharts, and diagrams**.
-
-This draft is **about the inference paper only**
-👉 **No adaptive learning, no spawning, no pruning**
-
----
-
 # **Interference-Based Quantum Classification Without Measurement-Driven Training**
-
----
 
 ## **Abstract**
 
@@ -46,20 +37,20 @@ In contrast to these approaches, our method does not estimate probabilities or d
 ### **3.1 Problem Setting**
 
 We consider a binary classification problem. Each data sample is represented as a normalized quantum state
-[
+$$
 |\psi\rangle \in \mathbb{C}^{2^n}
-]
+$$
 
 A fixed reference state
-[
+$$
 |\chi\rangle \in \mathbb{C}^{2^n}
-]
+$$
 is used for classification.
 
 The goal is to predict the label
-[
+$$
 y \in {-1, +1}
-]
+$$
 for a given input state.
 
 ---
@@ -67,18 +58,18 @@ for a given input state.
 ### **3.2 Interference-Based Decision Rule**
 
 The classification score is defined as the real part of the inner product:
-[
+$$
 s(\psi) = \mathrm{Re}\langle \chi | \psi \rangle
-]
+$$
 
 The predicted label is:
-[
+$$
 \hat{y} =
 \begin{cases}
 +1 & \text{if } s(\psi) \geq 0 \
 -1 & \text{otherwise}
 \end{cases}
-]
+$$
 
 Only the sign of the score is used. The exact value of the score is not required.
 
@@ -97,21 +88,11 @@ The quantum circuit used for inference is fixed and does not contain trainable p
 
 ---
 
-### **Figure 1 (Required)**
+### **Block Diagram of Interference-Based Inference**
 
-**Block Diagram of Interference-Based Inference**
-
-```
-Classical Input
-      ↓
-State Encoding → |ψ⟩
-      ↓
-Fixed Interference Circuit (with |χ⟩)
-      ↓
-Single Observable Measurement
-      ↓
-Sign Decision (+1 / −1)
-```
+<p align="center">
+  <img src="./flowchart_fig1.png" alt="Block Diagram of Interference-Based Inference" width="150"/>
+</p>
 
 ---
 
@@ -129,15 +110,11 @@ To reduce circuit complexity, the reference state can be compiled into a basis r
 
 ---
 
-### **Figure 2 (Required)**
+### **Quantum Circuit Diagram**
 
-**Quantum Circuit Diagram**
-
-* Input state preparation
-* Fixed unitary based on reference state
-* Single-qubit measurement
-
-*(To be drawn using Qiskit or similar tools)*
+<p align="center">
+  <img src="./transition_isdo.png" alt="Quantum Circuit Diagram" width="500"/>
+</p>
 
 ---
 
@@ -171,14 +148,11 @@ The interference-based classifier achieves competitive accuracy compared to clas
 
 ---
 
-### **Figure 3 (Required)**
+### **Accuracy Comparison Plot**
 
-**Accuracy Comparison Plot**
-
-* X-axis: Model type
-* Y-axis: Test accuracy
-
-*(Bar chart comparing ISDO, QSVM, and k-NN)*
+<p align="center">
+  <img src="./accuracy_comparison.png" alt="Accuracy Comparison Plot" width="400"/>
+</p>
 
 ---
 
