@@ -62,10 +62,10 @@ class AdaptiveMemoryModel:
             eta_scale: scale factor for learning rate
         """
 
-        print(
-            f"\n🔒 Consolidation phase started "
-            f"(epochs={epochs}, eta_scale={eta_scale})"
-        )
+        #print(
+        #    f"\n🔒 Consolidation phase started "
+        #    f"(epochs={epochs}, eta_scale={eta_scale})"
+        #)
 
         # Winner-Take-All learner (Regime-3A semantics)
         consolidator = WinnerTakeAll(
@@ -87,14 +87,14 @@ class AdaptiveMemoryModel:
 
             for ep in range(epochs):
                 consolidator.fit(X, y)
-                print(f"  ✔ Consolidation epoch {ep+1}/{epochs}")
+                #print(f"  ✔ Consolidation epoch {ep+1}/{epochs}")
 
         finally:
             # Restore adaptive behavior
             self.learner.step = original_spawn
             self.pruner.step = original_prune
 
-        print("🔓 Consolidation phase completed\n")
+        #print("🔓 Consolidation phase completed\n")
         return self
 
 

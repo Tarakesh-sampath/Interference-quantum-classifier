@@ -54,15 +54,15 @@ def eval_adaptive_iqc(X_train, X_test, y_train_pol, y_test_pol):
         backend=backend,
         delta_cover=0.2,
         spawn_cooldown=100,
-        min_polarized_per_class=1,
+        min_polarized_per_class=2,
     )
 
     pruner = Regime4BPruning(
         memory_bank=memory_bank,
         tau_harm=-0.15,
-        min_age=200,
+        min_age=100,
         min_per_class=1,
-        prune_interval=200,
+        prune_interval=150,
     )
 
     model = AdaptiveMemoryModel(
@@ -77,7 +77,7 @@ def eval_adaptive_iqc(X_train, X_test, y_train_pol, y_test_pol):
     model.fit(X_train, y_train_pol)
 
     # Consolidation phase
-    model.consolidate(X_train, y_train_pol, epochs=5, eta_scale=0.3)
+    model.consolidate(X_train, y_train_pol, epochs=5, eta_scale=0.4)
 
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test_pol, y_pred)
@@ -97,7 +97,7 @@ def main():
     results.append(("Static ISDO", acc, typ, mem))
 
     acc, typ, mem = eval_fixed_iqc(Xtr, Xte, ytr_pol, yte_pol)
-    results.append(("FixedMemory IQC (K=2)", acc, typ, mem))
+    results.append(("FixedMemory IQC (K=3)", acc, typ, mem))
 
     acc, typ, mem = eval_adaptive_iqc(Xtr, Xte, ytr_pol, yte_pol)
     results.append(("Adaptive IQC (with consolidation)", acc, typ, mem))
@@ -109,3 +109,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+
+📊 Unified Model Evaluation
+
+No frames directory specified. Skipping frame saving.                                                                              
+
+=== Final Comparison ===
+Static ISDO                         | Acc: 0.8807 | Type: static   | Memory: 6
+FixedMemory IQC (K=3)               | Acc: 0.8827 | Type: fixed    | Memory: 6
+Adaptive IQC (with consolidation)   | Acc: 0.9000 | Type: adaptive | Memory: 3
+"""
