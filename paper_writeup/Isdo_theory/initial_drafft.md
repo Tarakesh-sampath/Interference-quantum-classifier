@@ -167,12 +167,3 @@ The results show that probability estimation is not always necessary for quantum
 This paper presented a simple interference-based quantum classifier that performs inference using a fixed quantum circuit. The method relies only on the sign of an interference measurement and does not require training on a quantum device. Future work will study adaptive mechanisms to update the reference state and extend the method to multi-class classification.
 
 ---
-
-## **List of Required Figures and Diagrams (Summary)**
-
-| Item     | Description                                    |
-| -------- | ---------------------------------------------- |
-| Figure 1 | System-level inference flowchart               |
-| Figure 2 | Quantum circuit for interference measurement   |
-| Figure 3 | Accuracy comparison plot                       |
-| Optional | Bloch sphere visualization of reference states |
