@@ -69,15 +69,15 @@ def eval_adaptive_iqc(X_train, X_test, y_train_pol, y_test_pol):
         backend=backend,
         delta_cover=0.2,
         spawn_cooldown=100,
-        min_polarized_per_class=1,
+        min_polarized_per_class=2,
     )
 
     pruner = Regime4BPruning(
         memory_bank=memory_bank,
         tau_harm=-0.15,
-        min_age=200,
+        min_age=100,
         min_per_class=1,
-        prune_interval=200,
+        prune_interval=150,
     )
 
     model = AdaptiveMemoryModel(
@@ -96,7 +96,7 @@ def eval_adaptive_iqc(X_train, X_test, y_train_pol, y_test_pol):
         X_train,
         y_train_pol,
         epochs=5,
-        eta_scale=0.3,
+        eta_scale=0.4,
     )
 
     y_pred = model.predict(X_test)
