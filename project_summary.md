@@ -63,7 +63,7 @@ measurement-free-quantum-classifier/
             transforms.py
             __init__.py
         quantum/
-            compute_qsvm_kernel.py
+            train_test_qsvm_amp_encode.py
             __init__.py
         training/
             test_fixed_memory_iqc.py
@@ -3407,140 +3407,157 @@ def get_eval_transforms():
 
 ```
 
-## File: src/quantum/compute_qsvm_kernel.py
+## File: src/quantum/train_test_qsvm_amp_encode.py
 
 ```py
 import os
 import json
 import numpy as np
-from tqdm import tqdm
+import time
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import Normalizer
 
-from qiskit_aer.primitives import SamplerV2
-from qiskit.circuit.library import ZZFeatureMap
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit import ParameterVector
+from qiskit.circuit.library import StatePreparation
 from qiskit_machine_learning.kernels import FidelityQuantumKernel
 from qiskit_algorithms.state_fidelities import ComputeUncompute
+from qiskit_aer.primitives import SamplerV2
+from qiskit_machine_learning.algorithms import QSVC
 
 from src.utils.paths import load_paths
 from src.utils.seed import set_seed
 
-# ------------------------------------------------------------
-# Reproducibility
-# --------------------------------------------
-set_seed(42)
+# ============================================================
+# 0. Reproducibility
+# ============================================================
+seed = 1234
+set_seed(seed)
+np.random.seed(seed)
 
-# ------------------------------------------------------------
-# Load paths and data
-# ------------------------------------------------------------
+# ============================================================
+# 1. Load paths and embeddings
+# ============================================================
 BASE_ROOT, PATHS = load_paths()
-
 EMBED_DIR = PATHS["embeddings"]
-OUT_DIR = os.path.join(BASE_ROOT, "results", "qsvm_cache")
+OUT_DIR = os.path.join(BASE_ROOT, "results", "qsvm_final")
 os.makedirs(OUT_DIR, exist_ok=True)
 
+print("Loading embeddings...")
 X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
 y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
 
 train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
 test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
 
-X_train = X[train_idx]
-y_train = y[train_idx]
+# Subsample for feasibility
+TRAIN_SIZE = 100
+TEST_SIZE  = 50
 
-X_test = X[test_idx]
-y_test = y[test_idx]
+X_train = X[train_idx]#[:TRAIN_SIZE]
+y_train = y[train_idx]#[:TRAIN_SIZE]
+X_test  = X[test_idx]#[:TEST_SIZE]
+y_test  = y[test_idx]#[:TEST_SIZE]
 
-# ------------------------------------------------------------
-# SUBSAMPLING for Baseline Efficiency
-# ------------------------------------------------------------
-# Limiting to 500 samples because O(N^2) kernel computation 
-# for 3500 samples would take ~17 hours on GPU.
-MAX_TRAIN = 500000
-MAX_TEST  = 200000
+print(f"Original Shape: {X_train.shape}")
 
-if len(X_train) > MAX_TRAIN:
-    print(f"Subsampling train set from {len(X_train)} to {MAX_TRAIN}...")
-    rng = np.random.default_rng(42)
-    indices = rng.choice(len(X_train), MAX_TRAIN, replace=False)
-    X_train = X_train[indices]
-    y_train = y_train[indices]
+# ============================================================
+# 2. Preprocessing for Amplitude Encoding
+# ============================================================
+# Amplitude encoding requires the input vector to be normalized (L2 norm = 1)
+print("Normalizing features (L2) for Amplitude Encoding...")
+# Using sklearn Normalizer to ensure L2 norm is exactly 1
+normalizer = Normalizer(norm='l2')
+X_train_norm = normalizer.fit_transform(X_train)
+X_test_norm  = normalizer.transform(X_test)
 
-if len(X_test) > MAX_TEST:
-    print(f"Subsampling test set from {len(X_test)} to {MAX_TEST}...")
-    rng = np.random.default_rng(42)
-    indices = rng.choice(len(X_test), MAX_TEST, replace=False)
-    X_test = X_test[indices]
-    y_test = y_test[indices]
-
-# ------------------------------------------------------------
-# Normalize embeddings
-# ------------------------------------------------------------
-X_train = X_train / np.linalg.norm(X_train, axis=1, keepdims=True)
-X_test  = X_test  / np.linalg.norm(X_test, axis=1, keepdims=True)
-
-# Infer number of qubits
 dim = X_train.shape[1]
 num_qubits = int(np.log2(dim))
-assert 2 ** num_qubits == dim, "Embedding dimension must be 2^n"
+assert 2**num_qubits == dim, f"Dimension {dim} must be a power of 2 for amplitude encoding (2^n)"
 
-# ------------------------------------------------------------
-# Define FIXED quantum feature map
-# ------------------------------------------------------------
-feature_map = ZZFeatureMap(
-    feature_dimension=num_qubits,
-    reps=1,
-    entanglement="linear"
-)
+print(f"Using {num_qubits} qubits to encode {dim} features.")
 
-# ------------------------------------------------------------
-# GPU Accelerated Backend (Aer SamplerV2)
-# ------------------------------------------------------------
-sampler = SamplerV2(
-    options={"backend_options": {"method": "statevector", "device": "GPU"}}
-)
-fidelity = ComputeUncompute(sampler=sampler)
+# ============================================================
+# 3. Define Amplitude Encoding Feature Map using RawFeatureVector
+# ============================================================
+from qiskit_machine_learning.circuit.library import RawFeatureVector
 
-quantum_kernel = FidelityQuantumKernel(
-    feature_map=feature_map,
-    fidelity=fidelity
-)
+# RawFeatureVector implements amplitude encoding and handles parameter binding correctly
+feature_map = RawFeatureVector(feature_dimension=dim)
 
-# ------------------------------------------------------------
-# Compute and save TRAIN kernel
-# ------------------------------------------------------------
-print(f"Computing QSVM TRAIN kernel ({len(X_train)}x{len(X_train)})...")
-K_train = quantum_kernel.evaluate(X_train, X_train)
-np.save(os.path.join(OUT_DIR, "qsvm_kernel_train.npy"), K_train)
+# ============================================================
+# 4. Quantum Kernel Setup
+# ============================================================
+print("Setting up FidelityStatevectorKernel for Amplitude Encoding...")
+from qiskit_machine_learning.kernels import FidelityStatevectorKernel
 
-# ------------------------------------------------------------
-# Compute and save TEST kernel
-# ------------------------------------------------------------
-print(f"Computing QSVM TEST kernel ({len(X_test)}x{len(X_train)})...")
-K_test = quantum_kernel.evaluate(X_test, X_train)
-np.save(os.path.join(OUT_DIR, "qsvm_kernel_test.npy"), K_test)
+# FidelityStatevectorKernel calculates |<psi(x)|psi(y)>|^2 directly using statevectors.
+# It does NOT require circuit inversion, so it works with RawFeatureVector/Amplitude Encoding.
+qkernel = FidelityStatevectorKernel(feature_map=feature_map)
 
-# ------------------------------------------------------------
-# Save Labels for verification
-# ------------------------------------------------------------
-np.save(os.path.join(OUT_DIR, "y_train_sub.npy"), y_train)
-np.save(os.path.join(OUT_DIR, "y_test_sub.npy"), y_test)
+print("Training QSVC (Amplitude Encoding)...")
+start_time = time.time()
 
-# ------------------------------------------------------------
-# Save metadata
-# ------------------------------------------------------------
-meta = {
-    "model": "QSVM",
+qsvm = QSVC(quantum_kernel=qkernel)
+qsvm.fit(X_train_norm, y_train)
+
+end_time = time.time()
+train_time = end_time - start_time
+print(f"Training time: {train_time:.4f}s")
+print(f"Time per sample: {train_time / len(X_train_norm):.4f}s")
+
+# ============================================================
+# 5. Evaluate and Save
+# ============================================================
+print("Predicting on test set...")
+start_time = time.time()
+y_pred = qsvm.predict(X_test_norm)
+end_time = time.time()
+test_time = end_time - start_time
+print(f"Test time: {test_time:.4f}s")
+print(f"Time per sample: {test_time / len(X_test_norm):.4f}s")
+
+accuracy = accuracy_score(y_test, y_pred)
+
+print("=" * 60)
+print(f"QSVC (Amplitude Encoding) Test Accuracy: {accuracy:.4f}")
+print("=" * 60)
+
+# Save Results
+results = {
+    "accuracy": float(accuracy),
+    "num_train": len(X_train),
+    "num_test": len(X_test),
+    "num_features": dim,
     "num_qubits": num_qubits,
-    "num_train": int(X_train.shape[0]),
-    "num_test": int(X_test.shape[0]),
-    "embedding_dimension": int(dim),
-    "subsampling": True
+    "encoding": "Amplitude Encoding",
+    "training_time": train_time
 }
 
-with open(os.path.join(OUT_DIR, "qsvm_kernel_meta.json"), "w") as f:
-    json.dump(meta, f, indent=2)
+out_path = os.path.join(OUT_DIR, "qsvm_amp_results.json")
+with open(out_path, "w") as f:
+    json.dump(results, f, indent=2)
 
-print("QSVM kernel computation complete.")
+print(f"Saved results to {out_path}")
 
+"""
+Loading embeddings...
+Original Shape: (3500, 32)
+Normalizing features (L2) for Amplitude Encoding...
+Using 5 qubits to encode 32 features.
+Setting up FidelityStatevectorKernel for Amplitude Encoding...
+Training QSVC (Amplitude Encoding)...
+Training time: 79.7180s
+Time per sample: 0.0228s
+Predicting on test set...
+Test time: 37.7612s
+Time per sample: 0.0252s
+============================================================
+QSVC (Amplitude Encoding) Test Accuracy: 0.9093
+============================================================
+Saved results to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/qsvm_final/qsvm_amp_results.json
+"""
 ```
 
 ## File: src/quantum/__init__.py

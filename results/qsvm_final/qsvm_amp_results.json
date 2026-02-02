@@ -1,0 +1,9 @@
+{
+  "accuracy": 0.9093333333333333,
+  "num_train": 3500,
+  "num_test": 1500,
+  "num_features": 32,
+  "num_qubits": 5,
+  "encoding": "Amplitude Encoding",
+  "training_time": 81.87128019332886
+}
