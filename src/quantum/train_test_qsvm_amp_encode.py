@@ -20,16 +20,15 @@ from src.utils.seed import set_seed
 # ============================================================
 # 0. Reproducibility
 # ============================================================
-seed = 1234
-set_seed(seed)
-np.random.seed(seed)
+set_seed()
+
 
 # ============================================================
 # 1. Load paths and embeddings
 # ============================================================
 BASE_ROOT, PATHS = load_paths()
 EMBED_DIR = PATHS["embeddings"]
-OUT_DIR = os.path.join(BASE_ROOT, "results", "qsvm_final")
+OUT_DIR = os.path.join(BASE_ROOT, "results", "qsvm")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 print("Loading embeddings...")
