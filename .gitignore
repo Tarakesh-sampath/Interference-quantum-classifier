@@ -5,3 +5,5 @@ backup*
 results/embeddings/class_prototypes
 results/frames
 prime_b.py
+research_docs
+paper_writeup
