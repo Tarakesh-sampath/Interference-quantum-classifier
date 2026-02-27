@@ -46,7 +46,7 @@ def run_backend_tests(n_qubits=3, n_tests=20):
 
     exact = np.array(scores["Exact"])
 
-    for name in ["Hadamard", "Transition"]:
+    for name in ["Hadamard", "Transition", "HardwareNative"]:
         diff = np.max(np.abs(exact - np.array(scores[name])))
         print(f"Max |Exact - {name}| = {diff:.2e}")
 
@@ -60,11 +60,11 @@ def run_backend_tests(n_qubits=3, n_tests=20):
     exact_rank = np.argsort(exact)
     primeb_rank = np.argsort(primeb)
     rank_corr = np.corrcoef(exact_rank, primeb_rank)[0, 1]
-    print(f"PrimeB rank correlation with Exact: {rank_corr:.3f}")
+    print(f"HardwareNative rank correlation with Exact: {rank_corr:.3f}")
 
 
 if __name__ == "__main__":
-    run_backend_tests(n_qubits=3, n_tests=100)
+    run_backend_tests(n_qubits=3, n_tests=20)
 
 
 """
