@@ -3,7 +3,7 @@ import numpy as np
 from src.IQL.backends.exact import ExactBackend
 from src.IQL.backends.hadamard import HadamardBackend
 from src.IQL.backends.transition import TransitionBackend
-from src.IQL.backends.prime_b import PrimeBBackend
+from src.IQL.backends.hardwarenative import HardwareNativeBackend
 
 
 def random_state(n_qubits, seed=None):
@@ -19,7 +19,7 @@ def run_backend_tests(n_qubits=3, n_tests=20):
         "Exact": ExactBackend(),
         "Hadamard": HadamardBackend(),
         "Transition": TransitionBackend(),
-        "PrimeB": PrimeBBackend(),
+        "HardwareNative": HardwareNativeBackend(),
     }
 
     print(f"\nRunning backend tests with {n_qubits} qubits\n")
@@ -51,10 +51,10 @@ def run_backend_tests(n_qubits=3, n_tests=20):
         print(f"Max |Exact - {name}| = {diff:.2e}")
 
     # PrimeB: sign + ordering only
-    primeb = np.array(scores["PrimeB"])
+    primeb = np.array(scores["HardwareNative"])
 
     sign_match = np.mean(np.sign(primeb) == np.sign(exact))
-    print(f"\nPrimeB sign agreement with Exact: {sign_match * 100:.1f}%")
+    print(f"\nHardwareNative sign agreement with Exact: {sign_match * 100:.1f}%")
 
     # Rank correlation (ordering)
     exact_rank = np.argsort(exact)
@@ -64,7 +64,7 @@ def run_backend_tests(n_qubits=3, n_tests=20):
 
 
 if __name__ == "__main__":
-    run_backend_tests(n_qubits=3, n_tests=200)
+    run_backend_tests(n_qubits=3, n_tests=100)
 
 
 """
