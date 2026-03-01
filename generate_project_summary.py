@@ -11,6 +11,11 @@ EXCLUDE_DIRS = {
     '__pycache__',
     'Archive_src',
     'research_docs',
+    'context',
+    'context_copy',
+    'base_papers',
+    'paper_writeup',
+    '.opencode',
 }
 
 EXCLUDE_EXTS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.pyc', '.o', '.a', '.so', '.exe', '.bin', '.egg-info', '.lock'}

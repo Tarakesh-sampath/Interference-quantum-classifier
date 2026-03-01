@@ -1,6 +1,7 @@
 from src.IQL.learning.update import update
 from src.IQL.backends.exact import ExactBackend
 import pickle
+from tqdm import tqdm
 
 
 class WinnerTakeAll:
@@ -83,10 +84,12 @@ class WinnerTakeAll:
 
     def fit(self, X, y):
         correct = 0
-        for x, label in zip(X, y):
+        pbar = tqdm(zip(X, y), total=len(X), desc="Training")
+        for x, label in pbar:
             y_hat, _, _ = self.step(x, label)
             if y_hat == label:
                 correct += 1
+            pbar.set_postfix({"acc": f"{correct/(pbar.n+1):.4f}"})
         return correct / len(X)
 
     def predict_one(self, X):

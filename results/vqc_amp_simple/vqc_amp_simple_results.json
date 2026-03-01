@@ -1,0 +1,12 @@
+{
+  "accuracy": 0.8186666666666667,
+  "num_train": 3500,
+  "num_test": 1500,
+  "num_features": 32,
+  "num_qubits": 5,
+  "encoding": "Amplitude Encoding",
+  "ansatz": "Single RY layer + CNOT ring",
+  "num_parameters": 5,
+  "training_time": 0.0,
+  "test_time": 2.5195517539978027
+}

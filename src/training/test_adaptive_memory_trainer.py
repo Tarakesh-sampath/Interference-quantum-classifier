@@ -11,6 +11,7 @@ from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
 
 from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
 from src.IQL.models.adaptive_memory_model import AdaptiveMemoryModel
@@ -33,7 +34,7 @@ def main():
     # -------------------------------------------------
     # Bootstrap initial memory (1 per class)
     # -------------------------------------------------
-    backend = ExactBackend()
+    backend = HardwareNativeBackend()
     class_states = []
 
     for cls in [-1, +1]:
@@ -116,12 +117,12 @@ def main():
     # -------------------------------------------------
     RESULTS_DIR = "results/figures/adaptive"
     save_adaptive_plots(trainer, memory_bank, RESULTS_DIR)
-    memory_bank.visualize(
-        qubit=0,
-        title="Adaptive IQC – Memory States (Final Snapshot)",
-        save_path=os.path.join(RESULTS_DIR, "memory_states.png"),
-        show=True,
-    )
+    #memory_bank.visualize(
+    #    qubit=0,
+    #    title="Adaptive IQC – Memory States (Final Snapshot)",
+    #    save_path=os.path.join(RESULTS_DIR, "memory_states.png"),
+    #    show=True,
+    #)
 
 def save_adaptive_plots(trainer, memory_bank, out_dir):
     os.makedirs(out_dir, exist_ok=True)

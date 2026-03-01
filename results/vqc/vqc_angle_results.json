@@ -1,0 +1,11 @@
+{
+  "accuracy": 0.6133333333333333,
+  "num_train": 3500,
+  "num_test": 1500,
+  "num_original_features": 32,
+  "num_qubits": 5,
+  "encoding": "PCA + Angle Encoding (ZZFeatureMap)",
+  "ansatz": "RealAmplitudes (reps=2)",
+  "explained_variance": 0.868810803994215,
+  "training_time": 757.9337956905365
+}

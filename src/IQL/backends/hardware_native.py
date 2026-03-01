@@ -2,7 +2,7 @@ import numpy as np
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit.library import StatePreparation
 from qiskit_aer import AerSimulator
-
+import time
 
 class HardwareNativeBackend:
     """
@@ -62,5 +62,4 @@ class HardwareNativeBackend:
         n1 = counts.get('1', 0)
 
         z_exp = (n0 - n1) / self.shots
-
         return float(z_exp)

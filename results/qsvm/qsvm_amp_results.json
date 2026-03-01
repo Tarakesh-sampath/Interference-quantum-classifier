@@ -5,5 +5,5 @@
   "num_features": 32,
   "num_qubits": 5,
   "encoding": "Amplitude Encoding",
-  "training_time": 79.13084769248962
+  "training_time": 0.0
 }

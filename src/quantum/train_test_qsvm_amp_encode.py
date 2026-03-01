@@ -2,16 +2,10 @@ import os
 import json
 import numpy as np
 import time
-from sklearn.svm import SVC
+
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import Normalizer
 
-from qiskit import QuantumCircuit, transpile
-from qiskit.circuit import ParameterVector
-from qiskit.circuit.library import StatePreparation
-from qiskit_machine_learning.kernels import FidelityQuantumKernel
-from qiskit_algorithms.state_fidelities import ComputeUncompute
-from qiskit_aer.primitives import SamplerV2
 from qiskit_machine_learning.algorithms import QSVC
 
 from src.utils.paths import load_paths
@@ -30,6 +24,7 @@ BASE_ROOT, PATHS = load_paths()
 EMBED_DIR = PATHS["embeddings"]
 OUT_DIR = os.path.join(BASE_ROOT, "results", "qsvm")
 os.makedirs(OUT_DIR, exist_ok=True)
+MODEL_PATH = os.path.join(OUT_DIR, "qsvm_amp_model.dill")
 
 print("Loading embeddings...")
 X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
@@ -83,16 +78,24 @@ from qiskit_machine_learning.kernels import FidelityStatevectorKernel
 # It does NOT require circuit inversion, so it works with RawFeatureVector/Amplitude Encoding.
 qkernel = FidelityStatevectorKernel(feature_map=feature_map)
 
-print("Training QSVC (Amplitude Encoding)...")
-start_time = time.time()
+if os.path.exists(MODEL_PATH) and 1:
+    print(f"Loading saved model from {MODEL_PATH} (skipping training)...")
+    qsvm = joblib.load(MODEL_PATH)
+    train_time = 0.0
+else:
+    print("Training QSVC (Amplitude Encoding)...")
+    start_time = time.time()
 
-qsvm = QSVC(quantum_kernel=qkernel)
-qsvm.fit(X_train_norm, y_train)
+    qsvm = QSVC(quantum_kernel=qkernel)
+    qsvm.fit(X_train_norm, y_train)
 
-end_time = time.time()
-train_time = end_time - start_time
-print(f"Training time: {train_time:.4f}s")
-print(f"Time per sample: {train_time / len(X_train_norm):.4f}s")
+    end_time = time.time()
+    train_time = end_time - start_time
+    print(f"Training time: {train_time:.4f}s")
+    print(f"Time per sample: {train_time / len(X_train_norm):.4f}s")
+
+    qsvm.save(MODEL_PATH)  
+    print(f"Model saved to {MODEL_PATH}")
 
 # ============================================================
 # 5. Evaluate and Save

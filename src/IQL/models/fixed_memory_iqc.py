@@ -1,6 +1,7 @@
 # src/IQL/models/fixed_memory_iqc.py
 
 import os
+import pickle
 import numpy as np
 
 from src.utils.paths import load_paths
@@ -90,3 +91,38 @@ class FixedMemoryIQC:
         if self.classifier is None:
             raise RuntimeError("Model not trained. Call fit() first.")
         return [self.classifier.predict(x) for x in X]
+
+    def save(self, path):
+        """
+        Save the model state.
+        """
+        payload = {
+            "K": self.K,
+            "eta": self.eta,
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "memory_bank": self.memory_bank,
+            "classifier": self.classifier,
+            "backend": self.backend
+        }
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load the model state.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            K=payload["K"],
+            eta=payload["eta"],
+            alpha=payload["alpha"],
+            beta=payload["beta"],
+            backend=payload.get("backend")
+        )
+        obj.memory_bank = payload["memory_bank"]
+        obj.classifier = payload["classifier"]
+        return obj

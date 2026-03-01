@@ -3,7 +3,7 @@ import numpy as np
 from src.IQL.backends.exact import ExactBackend
 from src.IQL.backends.hadamard import HadamardBackend
 from src.IQL.backends.transition import TransitionBackend
-from src.IQL.backends.hardwarenative import HardwareNativeBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
 
 
 def random_state(n_qubits, seed=None):

@@ -14,6 +14,7 @@ from src.IQL.models.adaptive_memory_model import AdaptiveMemoryModel
 from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
 
@@ -36,7 +37,7 @@ def eval_fixed_iqc(X_train, X_test, y_train_pol, y_test_pol):
 
 
 def eval_adaptive_iqc(X_train, X_test, y_train_pol, y_test_pol):
-    backend = ExactBackend()
+    backend = HardwareNativeBackend()
 
     # Bootstrap memory (1 per class)
     class_states = []
