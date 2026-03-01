@@ -89,7 +89,7 @@ class WinnerTakeAll:
             y_hat, _, _ = self.step(x, label)
             if y_hat == label:
                 correct += 1
-            pbar.set_postfix({"acc": f"{correct/(pbar.n+1):.4f}"})
+            pbar.set_postfix(acc=f"{correct/(pbar.n+1):.4f}")
         return correct / len(X)
 
     def predict_one(self, X):
