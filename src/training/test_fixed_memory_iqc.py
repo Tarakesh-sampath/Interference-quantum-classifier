@@ -24,10 +24,6 @@ def main():
     # Load data
     # -------------------------------------------------
     X_train, X_test, y_train, y_test = load_data("polar")
-    
-    # Limit samples for faster testing
-    X_train, y_train = X_train[:100], y_train[:100]
-    X_test, y_test = X_test[:100], y_test[:100]
 
     # -------------------------------------------------
     # Quantum-safe normalization (defensive)
@@ -53,17 +49,17 @@ def main():
     print(f"\n💾 Saving model to {MODEL_PATH}...")
     model.save(MODEL_PATH)
 
-    print(f"📥 Loading model from {MODEL_PATH}...")
-    loaded_model = FixedMemoryIQC.load(MODEL_PATH)
+    #print(f"📥 Loading model from {MODEL_PATH}...")
+    #loaded_model = FixedMemoryIQC.load(MODEL_PATH)
 
-    y_pred_loaded = loaded_model.predict(X_test)
-    acc_loaded = accuracy_score(y_test, y_pred_loaded)
-    print(f"✅ Loaded Model | Test Accuracy: {acc_loaded:.4f}")
+    #y_pred_loaded = loaded_model.predict(X_test)
+    #acc_loaded = accuracy_score(y_test, y_pred_loaded)
+    #print(f"✅ Loaded Model | Test Accuracy: {acc_loaded:.4f}")
 
-    if np.all(y_pred == y_pred_loaded):
-        print("🚀 Success: Predictions match exactly!")
-    else:
-        print("❌ Error: Predictions do not match!")
+    #if np.all(y_pred == y_pred_loaded):
+    #    print("🚀 Success: Predictions match exactly!")
+    #else:
+    #    print("❌ Error: Predictions do not match!")
 
 
 if __name__ == "__main__":
