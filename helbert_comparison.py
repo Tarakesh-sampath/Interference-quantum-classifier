@@ -28,7 +28,8 @@ y_test = y[test_idx]
 # -------------------------------
 # Select states
 # -------------------------------
-chi = np.load(os.path.join(PROTO_BASE, "K1/class0_proto0.npy"))
+chi_data = np.load(os.path.join(PROTO_BASE, "K1/class0_proto0.npz"))
+chi = chi_data["vector"]
 chi = chi / np.linalg.norm(chi)
 
 psi_pos = X_test[y_test == 1][0]
@@ -97,7 +98,15 @@ plt.text(*psi2_2d, "  |ψ₂⟩")
 plt.title("Fidelity-Based Similarity Geometry")
 plt.xlabel("PCA dimension 1")
 plt.ylabel("PCA dimension 2")
-plt.legend()
+plt.legend(loc="upper right")
 plt.axis("equal")
+
+# Increase the overall plot scale so that the legend does not sit inside the circle
+ax = plt.gca()
+xlim = ax.get_xlim()
+ylim = ax.get_ylim()
+ax.set_xlim(chi_2d[0] - 1.5 * r, chi_2d[0] + 1.5 * r)
+ax.set_ylim(chi_2d[1] - 1.5 * r, chi_2d[1] + 1.5 * r)
+
 plt.grid(True)
 plt.show()

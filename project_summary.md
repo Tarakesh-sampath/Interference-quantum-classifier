@@ -7,6 +7,7 @@ measurement-free-quantum-classifier/
     configs/
         paths.yaml
     src/
+        run_with_shorts_IQL_QSVM_VQC.py
         evaluate_capacity_sweep_quantum_vs_knn.py
         evaluate_all_qmls.py
         evaluate_iqc_vs_classical.py
@@ -26,11 +27,11 @@ measurement-free-quantum-classifier/
                 memory_bank.py
                 __init__.py
             backends/
-                hardwarenative.py
                 base.py
                 hadamard.py
                 transition.py
                 exact.py
+                hardware_native.py
                 __init__.py
             regimes/
                 regime3b_responsible.py
@@ -64,12 +65,15 @@ measurement-free-quantum-classifier/
             transforms.py
             __init__.py
         quantum/
+            train_test_vqc_amp_encode.py
             train_test_qsvm_amp_encode.py
             __init__.py
         training/
+            sweep_k_fixed_memory_iqc copy.py
             test_fixed_memory_iqc.py
             validate_backends.py
             test_static_isdo_model.py
+            sweep_k_fixed_memory_iqc.py
             test_adaptive_memory_trainer.py
             protocol_online/
                 train_perceptron.py
@@ -117,6 +121,170 @@ paths:
 class_count:
   K: 3
   K_values: [1, 2, 3, 5, 7, 11, 13, 17, 19, 23] 
+```
+
+## File: src/run_with_shorts_IQL_QSVM_VQC.py
+
+```py
+import os
+import json
+import numpy as np
+import time
+import pickle
+import joblib
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import Normalizer
+
+# Qiskit components
+from qiskit_machine_learning.algorithms import VQC, QSVC
+from qiskit_machine_learning.kernels import FidelityQuantumKernel
+from qiskit_algorithms.state_fidelities import ComputeUncompute
+from qiskit.primitives import BackendSamplerV2
+from qiskit_aer import AerSimulator
+
+# Project components
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+from src.IQL.backends.hardware_native import HardwareNativeBackend
+
+def main():
+    set_seed()
+    BASE_ROOT, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+    
+    # Shot counts to compare
+    SHOT_LIST = [25, 50, 128, 512, 1024, 2048]
+    
+    # Subsample for faster evaluation (optional, but recommended for shots > 512)
+    EVAL_SAMPLES = 20
+    
+    print("Loading embeddings...")
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+    
+    X_test = X[test_idx][:EVAL_SAMPLES]
+    y_test = y[test_idx][:EVAL_SAMPLES]
+    
+    # y_test_pol for IQL (uses -1, +1)
+    y_test_pol = np.where(y_test == 0, -1, 1) if np.min(y_test) == 0 else y_test
+    
+    # L2 Normalization for Amplitude Encoding
+    normalizer = Normalizer(norm='l2')
+    X_test_norm = normalizer.fit_transform(X_test)
+    
+    # Model Paths
+    IQL_PATH = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc", "fixed_memory_iqc.pkl")
+    QSVM_PATH = os.path.join(BASE_ROOT, "results", "qsvm", "qsvm_amp_model.dill")
+    VQC_PATH = os.path.join(BASE_ROOT, "results", "vqc_amp_simple", "vqc_amp_simple.dill")
+    
+    print(f"Loading Models...")
+    # Load IQL
+    iql_model = FixedMemoryIQC.load(IQL_PATH)
+    
+    # Load QSVM
+    qsvm_model = QSVC.load(QSVM_PATH)
+    
+    # Load VQC
+    vqc_model = VQC.load(VQC_PATH)
+    
+    results = {
+        "shots": SHOT_LIST,
+        "iql_acc": [],
+        "qsvm_acc": [],
+        "vqc_acc": []
+    }
+    
+    for shots in SHOT_LIST:
+        print(f"\nEvaluating with {shots} shots...")
+        
+        # --- 1. IQL Evaluation ---
+        print(" Evaluating IQL...")
+        # Inject shots into HardwareNativeBackend
+        new_backend = HardwareNativeBackend(shots=shots)
+        # Update each ClassState in the memory bank (deep update)
+        for cs in iql_model.memory_bank.class_states:
+            cs.backend = new_backend
+        
+        y_pred = iql_model.predict(X_test_norm)
+        acc = accuracy_score(y_test_pol, y_pred)
+        results["iql_acc"].append(acc)
+        print(f"  IQL Accuracy: {acc:.4f}")
+        
+        # --- 2. VQC Evaluation ---
+        print(" Evaluating VQC...")
+        vqc_model.sampler = BackendSamplerV2(backend=AerSimulator(shots=shots))
+        y_pred = vqc_model.predict(X_test_norm)
+        acc = accuracy_score(y_test, y_pred)
+        results["vqc_acc"].append(acc)
+        print(f"  VQC Accuracy: {acc:.4f}")
+        
+        print(" Evaluating QSVM...")
+        # Since FidelityQuantumKernel with RawFeatureVector fails on inverse()
+        # when parameters are unbound, and AerSimulator crashes on large batches,
+        # we compute the probabilities using Statevector and then sample.
+        
+        from qiskit.quantum_info import Statevector
+        
+        support_vectors = qsvm_model._BaseLibSVM__Xfit[qsvm_model.support_]
+        n_test = len(X_test_norm)
+        n_support = len(support_vectors)
+        
+        # Pre-compute support statevectors
+        print(f"  Pre-computing {n_support} support statevectors...")
+        sv_support = [Statevector(sj) for sj in support_vectors]
+        
+        # Build K matrix
+        K = np.zeros((n_test, n_support))
+        print(f"  Computing {n_test * n_support} overlaps and sampling {shots} shots...")
+        
+        for i in range(n_test):
+            sv_test = Statevector(X_test_norm[i])
+            for j in range(n_support):
+                prob = np.abs(sv_test.data @ sv_support[j].data.conj())**2
+                # Sample from binomial distribution to simulate shots
+                n0 = np.random.binomial(shots, prob)
+                K[i, j] = n0 / shots
+        
+        # Decision function: f(x) = sum alpha_i y_i K(x, s_i) + b
+        decision = K @ qsvm_model.dual_coef_.T + qsvm_model.intercept_
+        y_pred = np.where(decision >= 0, 1, 0).flatten()
+        
+        acc = accuracy_score(y_test, y_pred)
+        results["qsvm_acc"].append(acc)
+        print(f"  QSVM Accuracy: {acc:.4f}")
+
+    # Save results
+    RESULTS_FILE = os.path.join(BASE_ROOT, "results", "shots_comparison_results.json")
+    with open(RESULTS_FILE, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\nResults saved to {RESULTS_FILE}")
+    
+    # Plotting
+    plt.figure(figsize=(10, 6))
+    plt.plot(SHOT_LIST, results["iql_acc"], 'o-', label='IQL (FixedMemoryIQC)', linewidth=2)
+    plt.plot(SHOT_LIST, results["qsvm_acc"], 's-', label='QSVM (Amplitude)', linewidth=2)
+    plt.plot(SHOT_LIST, results["vqc_acc"], '^-', label='VQC (Amplitude)', linewidth=2)
+    
+    plt.xscale('log')
+    plt.xticks(SHOT_LIST, [str(s) for s in SHOT_LIST])
+    plt.xlabel('Shot Count (log scale)')
+    plt.ylabel('Test Accuracy')
+    plt.title(f'Quantum Model Performance vs. Shot Count (N={EVAL_SAMPLES})')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    PLOT_FILE = os.path.join(BASE_ROOT, "results", "shots_comparison.png")
+    plt.savefig(PLOT_FILE)
+    print(f"Plot saved to {PLOT_FILE}")
+    
+    # plt.show() # Commented out for non-interactive run
+
+if __name__ == "__main__":
+    main()
+
 ```
 
 ## File: src/evaluate_capacity_sweep_quantum_vs_knn.py
@@ -377,6 +545,7 @@ from src.IQL.models.adaptive_memory_model import AdaptiveMemoryModel
 from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
 from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
 
@@ -399,7 +568,7 @@ def eval_fixed_iqc(X_train, X_test, y_train_pol, y_test_pol):
 
 
 def eval_adaptive_iqc(X_train, X_test, y_train_pol, y_test_pol):
-    backend = ExactBackend()
+    backend = HardwareNativeBackend()
 
     # Bootstrap memory (1 per class)
     class_states = []
@@ -646,6 +815,7 @@ if __name__ == "__main__":
 # src/IQL/models/fixed_memory_iqc.py
 
 import os
+import pickle
 import numpy as np
 
 from src.utils.paths import load_paths
@@ -735,6 +905,41 @@ class FixedMemoryIQC:
         if self.classifier is None:
             raise RuntimeError("Model not trained. Call fit() first.")
         return [self.classifier.predict(x) for x in X]
+
+    def save(self, path):
+        """
+        Save the model state.
+        """
+        payload = {
+            "K": self.K,
+            "eta": self.eta,
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "memory_bank": self.memory_bank,
+            "classifier": self.classifier,
+            "backend": self.backend
+        }
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load the model state.
+        """
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+
+        obj = cls(
+            K=payload["K"],
+            eta=payload["eta"],
+            alpha=payload["alpha"],
+            beta=payload["beta"],
+            backend=payload.get("backend")
+        )
+        obj.memory_bank = payload["memory_bank"]
+        obj.classifier = payload["classifier"]
+        return obj
 
 ```
 
@@ -1424,77 +1629,6 @@ class MemoryBank:
 
 ```
 
-## File: src/IQL/backends/hardwarenative.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit, transpile
-from qiskit.circuit.library import StatePreparation
-from qiskit_aer import AerSimulator
-
-
-class HardwareNativeBackend:
-    """
-    Hardware-native Hadamard test implementation.
-    Computes Re⟨chi | psi⟩ using controlled state-preparation circuits.
-    """
-
-    def __init__(self, backend=None, shots=25):
-        self.backend = backend or AerSimulator()
-        self.shots = shots
-
-    def score(self, chi, psi) -> float:
-        chi = np.asarray(chi, dtype=np.complex128)
-        psi = np.asarray(psi, dtype=np.complex128)
-
-        chi = chi / np.linalg.norm(chi)
-        psi = psi / np.linalg.norm(psi)
-
-        assert chi.shape == psi.shape
-        n = int(np.log2(len(psi)))
-        assert 2**n == len(psi)
-
-        qc = QuantumCircuit(1 + n, 1)
-        anc = 0
-        data = list(range(1, 1 + n))
-
-        psi_state = StatePreparation(psi)
-        chi_state = StatePreparation(chi)
-
-        # Prepare |psi⟩
-        qc.append(psi_state, data)
-
-        # Hadamard on ancilla
-        qc.h(anc)
-
-        # Controlled Uψ†
-        qc.append(psi_state.inverse().control(1), [anc] + data)
-
-        # Controlled Uχ
-        qc.append(chi_state.control(1), [anc] + data)
-
-        # Final Hadamard
-        qc.h(anc)
-
-        # Measure ancilla
-        qc.measure(anc, 0)
-
-        # Transpile for backend
-        tqc = transpile(qc, self.backend)
-
-        # Execute
-        job = self.backend.run(tqc, shots=self.shots)
-        counts = job.result().get_counts()
-
-        # Compute expectation value
-        n0 = counts.get('0', 0)
-        n1 = counts.get('1', 0)
-
-        z_exp = (n0 - n1) / self.shots
-
-        return float(z_exp)
-```
-
 ## File: src/IQL/backends/base.py
 
 ```py
@@ -1690,6 +1824,76 @@ class ExactBackend(InterferenceBackend):
     def score(self, chi, psi) -> float:
         return float(np.real(np.vdot(chi, psi)))
 
+```
+
+## File: src/IQL/backends/hardware_native.py
+
+```py
+import numpy as np
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit.library import StatePreparation
+from qiskit_aer import AerSimulator
+import time
+
+class HardwareNativeBackend:
+    """
+    Hardware-native Hadamard test implementation.
+    Computes Re⟨chi | psi⟩ using controlled state-preparation circuits.
+    """
+
+    def __init__(self, backend=None, shots=25):
+        self.backend = backend or AerSimulator()
+        self.shots = shots
+
+    def score(self, chi, psi) -> float:
+        chi = np.asarray(chi, dtype=np.complex128)
+        psi = np.asarray(psi, dtype=np.complex128)
+
+        chi = chi / np.linalg.norm(chi)
+        psi = psi / np.linalg.norm(psi)
+
+        assert chi.shape == psi.shape
+        n = int(np.log2(len(psi)))
+        assert 2**n == len(psi)
+
+        qc = QuantumCircuit(1 + n, 1)
+        anc = 0
+        data = list(range(1, 1 + n))
+
+        psi_state = StatePreparation(psi)
+        chi_state = StatePreparation(chi)
+
+        # Prepare |psi⟩
+        qc.append(psi_state, data)
+
+        # Hadamard on ancilla
+        qc.h(anc)
+
+        # Controlled Uψ†
+        qc.append(psi_state.inverse().control(1), [anc] + data)
+
+        # Controlled Uχ
+        qc.append(chi_state.control(1), [anc] + data)
+
+        # Final Hadamard
+        qc.h(anc)
+
+        # Measure ancilla
+        qc.measure(anc, 0)
+
+        # Transpile for backend
+        tqc = transpile(qc, self.backend)
+
+        # Execute
+        job = self.backend.run(tqc, shots=self.shots)
+        counts = job.result().get_counts()
+
+        # Compute expectation value
+        n0 = counts.get('0', 0)
+        n1 = counts.get('1', 0)
+
+        z_exp = (n0 - n1) / self.shots
+        return float(z_exp)
 ```
 
 ## File: src/IQL/backends/__init__.py
@@ -2108,6 +2312,7 @@ class Regime4BPruning:
 from src.IQL.learning.update import update
 from src.IQL.backends.exact import ExactBackend
 import pickle
+from tqdm import tqdm
 
 
 class WinnerTakeAll:
@@ -2190,10 +2395,12 @@ class WinnerTakeAll:
 
     def fit(self, X, y):
         correct = 0
-        for x, label in zip(X, y):
+        pbar = tqdm(zip(X, y), total=len(X), desc="Training")
+        for x, label in pbar:
             y_hat, _, _ = self.step(x, label)
             if y_hat == label:
                 correct += 1
+            pbar.set_postfix(acc=f"{correct/(pbar.n+1):.4f}")
         return correct / len(X)
 
     def predict_one(self, X):
@@ -3206,6 +3413,192 @@ def get_eval_transforms():
 
 ```
 
+## File: src/quantum/train_test_vqc_amp_encode.py
+
+```py
+import os
+import json
+import numpy as np
+import time
+import joblib
+import dill
+from sklearn.preprocessing import Normalizer
+from sklearn.metrics import accuracy_score
+
+from qiskit import QuantumCircuit
+from qiskit.circuit import ParameterVector
+from qiskit_machine_learning.algorithms import VQC
+from qiskit.circuit.library import StatePreparation
+from qiskit_machine_learning.utils.loss_functions import CrossEntropyLoss
+from qiskit_algorithms.optimizers import COBYLA
+from qiskit.primitives import Sampler  # Using reference Sampler for better compatibility with parameterized initialize
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+
+# ============================================================
+# 0. Reproducibility
+# ============================================================
+set_seed()
+
+
+# ============================================================
+# 1. Load Data
+# ============================================================
+BASE_ROOT, PATHS = load_paths()
+EMBED_DIR = PATHS["embeddings"]
+
+OUT_DIR = os.path.join(BASE_ROOT, "results", "vqc_amp_simple")
+os.makedirs(OUT_DIR, exist_ok=True)
+
+MODEL_PATH = os.path.join(OUT_DIR, "vqc_amp_simple.dill")
+RESULT_PATH = os.path.join(OUT_DIR, "vqc_amp_simple_results.json")
+
+print("Loading embeddings...")
+X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+
+train_idx = np.load(os.path.join(EMBED_DIR, "split_train_idx.npy"))
+test_idx  = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+
+X_train = X[train_idx]
+y_train = y[train_idx]
+X_test  = X[test_idx]
+y_test  = y[test_idx]
+
+# ============================================================
+# 2. Amplitude Normalization
+# ============================================================
+normalizer = Normalizer(norm='l2')
+X_train = normalizer.fit_transform(X_train)
+X_test  = normalizer.transform(X_test)
+
+dim = X_train.shape[1]
+num_qubits = int(np.log2(dim))
+assert 2**num_qubits == dim, "Feature dimension must be power of 2"
+
+print(f"Using {num_qubits} qubits (Amplitude Encoding)")
+
+
+# ============================================================
+# 3. Define Feature Map
+# ============================================================
+# Feature map (Amplitude Encoding)
+# We use a ParameterVector to represent the features. 
+# RawFeatureVector is the standard way, but if it fails, we can try to wrap it.
+from qiskit_machine_learning.circuit.library import RawFeatureVector
+feature_map = RawFeatureVector(feature_dimension=dim)
+
+
+# ============================================================
+# 4. Define SIMPLE Ansatz
+# ============================================================
+theta = ParameterVector("θ", length=num_qubits)
+ansatz = QuantumCircuit(num_qubits)
+
+# Single rotation layer
+for i in range(num_qubits):
+    ansatz.ry(theta[i], i)
+
+# Simple entanglement ring
+for i in range(num_qubits - 1):
+    ansatz.cx(i, i + 1)
+ansatz.cx(num_qubits - 1, 0)
+
+
+# ============================================================
+# 5. Optimizer & Sampler
+# ============================================================
+optimizer = COBYLA(maxiter=100)
+sampler = Sampler()
+
+
+# ============================================================
+# 6. Train or Load
+# ============================================================
+if os.path.exists(MODEL_PATH) and 1:
+    print(f"Loading saved model from {MODEL_PATH}...")
+    # NOTE: Qiskit's VQC.load often requires the same environment
+    vqc = VQC.load(MODEL_PATH)
+    vqc.sampler = sampler
+    train_time = 0.0
+else:
+    print("Training simple amplitude-VQC...")
+
+    vqc = VQC(
+        sampler=sampler,
+        feature_map=feature_map,
+        ansatz=ansatz,
+        optimizer=optimizer,
+        loss=CrossEntropyLoss()
+    )
+
+    start = time.time()
+    vqc.fit(X_train, y_train)
+    end = time.time()
+
+    train_time = end - start
+    print(f"Training time: {train_time:.2f}s")
+
+    vqc.save(MODEL_PATH)
+    print(f"Model saved to {MODEL_PATH}")
+
+
+# ============================================================
+# 7. Evaluate
+# ============================================================
+print("Evaluating...")
+start = time.time()
+y_pred = vqc.predict(X_test)
+end = time.time()
+
+test_time = end - start
+accuracy = accuracy_score(y_test, y_pred)
+
+print("=" * 60)
+print(f"Simple Amplitude-VQC Accuracy: {accuracy:.4f}")
+print("=" * 60)
+
+
+# ============================================================
+# 8. Save Results
+# ============================================================
+results = {
+    "accuracy": float(accuracy),
+    "num_train": len(X_train),
+    "num_test": len(X_test),
+    "num_features": dim,
+    "num_qubits": num_qubits,
+    "encoding": "Amplitude Encoding",
+    "ansatz": "Single RY layer + CNOT ring",
+    "num_parameters": num_qubits,
+    "training_time": train_time,
+    "test_time": test_time
+}
+
+with open(RESULT_PATH, "w") as f:
+    json.dump(results, f, indent=2)
+
+print(f"Results saved to {RESULT_PATH}")
+
+
+"""
+Loading embeddings...
+Using 5 qubits (Amplitude Encoding)
+/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/src/quantum/train_test_vqc_amp_encode.py:96: DeprecationWarning: The class ``qiskit.primitives.sampler.Sampler`` is deprecated as of qiskit 1.2. It will be removed no earlier than 3 months after the release date. All implementations of the `BaseSamplerV1` interface have been deprecated in favor of their V2 counterparts. The V2 alternative for the `Sampler` class is `StatevectorSampler`.
+  sampler = Sampler()
+Training simple amplitude-VQC...
+Training time: 650.60s
+Model saved to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/vqc_amp_simple/vqc_amp_simple.dill
+Evaluating...
+============================================================
+Simple Amplitude-VQC Accuracy: 0.8187
+============================================================
+Results saved to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/vqc_amp_simple/vqc_amp_simple_results.json
+"""
+```
+
 ## File: src/quantum/train_test_qsvm_amp_encode.py
 
 ```py
@@ -3213,16 +3606,10 @@ import os
 import json
 import numpy as np
 import time
-from sklearn.svm import SVC
+
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import Normalizer
 
-from qiskit import QuantumCircuit, transpile
-from qiskit.circuit import ParameterVector
-from qiskit.circuit.library import StatePreparation
-from qiskit_machine_learning.kernels import FidelityQuantumKernel
-from qiskit_algorithms.state_fidelities import ComputeUncompute
-from qiskit_aer.primitives import SamplerV2
 from qiskit_machine_learning.algorithms import QSVC
 
 from src.utils.paths import load_paths
@@ -3241,6 +3628,7 @@ BASE_ROOT, PATHS = load_paths()
 EMBED_DIR = PATHS["embeddings"]
 OUT_DIR = os.path.join(BASE_ROOT, "results", "qsvm")
 os.makedirs(OUT_DIR, exist_ok=True)
+MODEL_PATH = os.path.join(OUT_DIR, "qsvm_amp_model.dill")
 
 print("Loading embeddings...")
 X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
@@ -3294,16 +3682,24 @@ from qiskit_machine_learning.kernels import FidelityStatevectorKernel
 # It does NOT require circuit inversion, so it works with RawFeatureVector/Amplitude Encoding.
 qkernel = FidelityStatevectorKernel(feature_map=feature_map)
 
-print("Training QSVC (Amplitude Encoding)...")
-start_time = time.time()
+if os.path.exists(MODEL_PATH) and 1:
+    print(f"Loading saved model from {MODEL_PATH} (skipping training)...")
+    qsvm = joblib.load(MODEL_PATH)
+    train_time = 0.0
+else:
+    print("Training QSVC (Amplitude Encoding)...")
+    start_time = time.time()
 
-qsvm = QSVC(quantum_kernel=qkernel)
-qsvm.fit(X_train_norm, y_train)
+    qsvm = QSVC(quantum_kernel=qkernel)
+    qsvm.fit(X_train_norm, y_train)
 
-end_time = time.time()
-train_time = end_time - start_time
-print(f"Training time: {train_time:.4f}s")
-print(f"Time per sample: {train_time / len(X_train_norm):.4f}s")
+    end_time = time.time()
+    train_time = end_time - start_time
+    print(f"Training time: {train_time:.4f}s")
+    print(f"Time per sample: {train_time / len(X_train_norm):.4f}s")
+
+    qsvm.save(MODEL_PATH)  
+    print(f"Model saved to {MODEL_PATH}")
 
 # ============================================================
 # 5. Evaluate and Save
@@ -3364,17 +3760,131 @@ Saved results to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/re
 
 ```
 
+## File: src/training/sweep_k_fixed_memory_iqc copy.py
+
+```py
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score
+import time
+
+from src.utils.load_data import load_data
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+from src.IQL.backends.hardware_native import HardwareNativeBackend
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+def main():
+    # -------------------------------------------------
+    # Load paths and Set Seed
+    # -------------------------------------------------
+    set_seed()
+    BASE_ROOT, PATHS = load_paths()
+
+    OUT_DIR = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep")
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    MODELS_DIR = os.path.join(OUT_DIR, "models")
+    os.makedirs(MODELS_DIR, exist_ok=True)
+
+    # -------------------------------------------------
+    # Load data
+    # -------------------------------------------------
+    X_train, X_test, y_train, y_test = load_data("polar")
+
+    # Quantum-safe normalization (defensive)
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # -------------------------------------------------
+    # Sweep Setup
+    # -------------------------------------------------
+    # List of K values to sweep over
+    k_values = [i for i in range(1,20)] 
+    accuracies = []
+
+    print(f"🚀 Starting K sweep for FixedMemoryIQC: {k_values}")
+
+    for k in k_values:
+        print(f"\n--- Training K={k} ---")
+        start_time = time.time()
+        
+        # Initialize and train model
+        model = FixedMemoryIQC(K=k, eta=0.1, backend=HardwareNativeBackend())
+        model.fit(X_train, y_train)
+
+        # Evaluate model
+        y_pred = model.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+        accuracies.append(acc)
+
+        train_time = time.time() - start_time
+        print(f"✅ K={k} | Test Accuracy: {acc:.4f} | Time: {train_time:.2f}s")
+
+        # Save model
+        model_name = f"fixed_memory_iqc_k{k}.pkl"
+        model_path = os.path.join(MODELS_DIR, model_name)
+        model.save(model_path)
+        print(f"💾 Saved model to {model_path}")
+
+    # -------------------------------------------------
+    # Plotting
+    # -------------------------------------------------
+    plot_path = os.path.join(OUT_DIR, "k_vs_accuracy.png")
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(k_values, accuracies, marker='o', linestyle='-', color='b', label='Test Accuracy')
+    plt.title("FixedMemoryIQC: K vs Accuracy")
+    plt.xlabel("K (Memory Size)")
+    plt.ylabel("Test Accuracy")
+    plt.xticks(k_values)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend()
+    
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"\n📊 K vs Accuracy plot saved to: {plot_path}")
+
+    # Optional: Save results summary to a text file
+    summary_path = os.path.join(OUT_DIR, "sweep_results.txt")
+    with open(summary_path, "w") as f:
+        f.write("K\tAccuracy\n")
+        for k, acc in zip(k_values, accuracies):
+            f.write(f"{k}\t{acc:.4f}\n")
+    print(f"📝 Sweep results summary saved to: {summary_path}")
+
+if __name__ == "__main__":
+    main()
+
+```
+
 ## File: src/training/test_fixed_memory_iqc.py
 
 ```py
 import numpy as np
+import os
 from sklearn.metrics import accuracy_score
 
 from src.utils.load_data import load_data
 from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
-
+from src.IQL.backends.hardware_native import HardwareNativeBackend
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
 
 def main():
+    # -------------------------------------------------
+    # Load paths
+    # -------------------------------------------------
+    set_seed()
+    BASE_ROOT, PATHS = load_paths()
+
+    OUT_DIR = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc")
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+    MODEL_PATH = os.path.join(OUT_DIR, "fixed_memory_iqc.pkl")
+        
     # -------------------------------------------------
     # Load data
     # -------------------------------------------------
@@ -3390,13 +3900,31 @@ def main():
     # Train Fixed-Memory IQC
     # -------------------------------------------------
     K = 1
-    model = FixedMemoryIQC(K=K, eta=0.1)#, alpha=0.3, beta=1.5)
+    model = FixedMemoryIQC(K=K, eta=0.1, backend=HardwareNativeBackend())#, alpha=0.3, beta=1.5)
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
 
     print(f"✅ FixedMemoryIQC | K={K} | Test Accuracy: {acc:.4f}")
+
+    # -------------------------------------------------
+    # Save/Load Demonstration
+    # -------------------------------------------------
+    print(f"\n💾 Saving model to {MODEL_PATH}...")
+    model.save(MODEL_PATH)
+
+    #print(f"📥 Loading model from {MODEL_PATH}...")
+    #loaded_model = FixedMemoryIQC.load(MODEL_PATH)
+
+    #y_pred_loaded = loaded_model.predict(X_test)
+    #acc_loaded = accuracy_score(y_test, y_pred_loaded)
+    #print(f"✅ Loaded Model | Test Accuracy: {acc_loaded:.4f}")
+
+    #if np.all(y_pred == y_pred_loaded):
+    #    print("🚀 Success: Predictions match exactly!")
+    #else:
+    #    print("❌ Error: Predictions do not match!")
 
 
 if __name__ == "__main__":
@@ -3412,7 +3940,7 @@ import numpy as np
 from src.IQL.backends.exact import ExactBackend
 from src.IQL.backends.hadamard import HadamardBackend
 from src.IQL.backends.transition import TransitionBackend
-from src.IQL.backends.hardwarenative import HardwareNativeBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
 
 
 def random_state(n_qubits, seed=None):
@@ -3568,6 +4096,135 @@ if __name__ == "__main__":
 
 ```
 
+## File: src/training/sweep_k_fixed_memory_iqc.py
+
+```py
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score
+import time
+from multiprocessing import Pool, cpu_count
+
+from src.utils.load_data import load_data
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+from src.IQL.backends.hardware_native import HardwareNativeBackend
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+def train_and_eval_k(k, X_train, y_train, X_test, y_test, models_dir):
+    """Worker function to train and evaluate a single K value."""
+    print(f"\n--- Starting Training K={k} ---")
+    start_time = time.time()
+    
+    # Initialize and train model
+    # Note: HardwareNativeBackend and models usually need to be initialized inside the process
+    # to avoid pickling issues, especially with quantum simulators/hardware backends.
+    model = FixedMemoryIQC(K=k, eta=0.1, backend=HardwareNativeBackend())
+    model.fit(X_train, y_train)
+
+    # Evaluate model
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    
+    train_time = time.time() - start_time
+    print(f"✅ Finished K={k} | Test Accuracy: {acc:.4f} | Time: {train_time:.2f}s")
+
+    # Save model
+    model_name = f"fixed_memory_iqc_k{k}.pkl"
+    model_path = os.path.join(models_dir, model_name)
+    model.save(model_path)
+    print(f"💾 Saved K={k} model to {model_path}")
+    
+    return k, acc
+
+def main():
+    # -------------------------------------------------
+    # Load paths and Set Seed
+    # -------------------------------------------------
+    set_seed()
+    BASE_ROOT, PATHS = load_paths()
+
+    OUT_DIR = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep")
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    MODELS_DIR = os.path.join(OUT_DIR, "models")
+    os.makedirs(MODELS_DIR, exist_ok=True)
+
+    # -------------------------------------------------
+    # Load data
+    # -------------------------------------------------
+    X_train, X_test, y_train, y_test = load_data("polar")
+
+    # Quantum-safe normalization (defensive)
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # -------------------------------------------------
+    # Sweep Setup
+    # -------------------------------------------------
+    # List of K values to sweep over 
+    k_values = [10]#[i for i in range(1,20)] 
+    
+    # Use 3 workers or max CPU count, whichever is smaller
+    num_workers = min(3, cpu_count())
+    
+    print(f"🚀 Starting K sweep for FixedMemoryIQC: {k_values}")
+    print(f"⚡ Running with {num_workers} parallel workers...")
+    
+    overall_start_time = time.time()
+    
+    results = []
+    # Create arguments for the worker pool
+    pool_args = [(k, X_train, y_train, X_test, y_test, MODELS_DIR) for k in k_values]
+    
+    # Run multiprocessing pool
+    with Pool(processes=num_workers) as pool:
+        # Using starmap to pass multiple arguments to the worker function
+        results = pool.starmap(train_and_eval_k, pool_args)
+
+    # Sort results by K to ensure consistent plotting
+    results.sort(key=lambda x: x[0])
+    
+    # Unpack sorted results
+    sorted_k_values = [res[0] for res in results]
+    accuracies = [res[1] for res in results]
+
+    total_time = time.time() - overall_start_time
+    print(f"\n🎉 All K sweeps completed in {total_time:.2f}s ({total_time/60:.2f} mins)")
+
+    # -------------------------------------------------
+    # Plotting
+    # -------------------------------------------------
+    plot_path = os.path.join(OUT_DIR, "k_vs_accuracy.png")
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(sorted_k_values, accuracies, marker='o', linestyle='-', color='b', label='Test Accuracy')
+    plt.title("FixedMemoryIQC: K vs Accuracy")
+    plt.xlabel("K (Memory Size)")
+    plt.ylabel("Test Accuracy")
+    plt.xticks(sorted_k_values)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend()
+    
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"\n📊 K vs Accuracy plot saved to: {plot_path}")
+
+    # Optional: Save results summary to a text file
+    summary_path = os.path.join(OUT_DIR, "sweep_results.txt")
+    with open(summary_path, "w") as f:
+        f.write("K\tAccuracy\n")
+        for k, acc in zip(sorted_k_values, accuracies):
+            f.write(f"{k}\t{acc:.4f}\n")
+    print(f"📝 Sweep results summary saved to: {summary_path}")
+
+if __name__ == "__main__":
+    main()
+
+```
+
 ## File: src/training/test_adaptive_memory_trainer.py
 
 ```py
@@ -3584,6 +4241,7 @@ from src.IQL.learning.class_state import ClassState
 from src.IQL.learning.memory_bank import MemoryBank
 
 from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
 from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
 from src.IQL.regimes.regime4b_pruning import Regime4BPruning
 from src.IQL.models.adaptive_memory_model import AdaptiveMemoryModel
@@ -3606,7 +4264,7 @@ def main():
     # -------------------------------------------------
     # Bootstrap initial memory (1 per class)
     # -------------------------------------------------
-    backend = ExactBackend()
+    backend = HardwareNativeBackend()
     class_states = []
 
     for cls in [-1, +1]:
@@ -3689,12 +4347,12 @@ def main():
     # -------------------------------------------------
     RESULTS_DIR = "results/figures/adaptive"
     save_adaptive_plots(trainer, memory_bank, RESULTS_DIR)
-    memory_bank.visualize(
-        qubit=0,
-        title="Adaptive IQC – Memory States (Final Snapshot)",
-        save_path=os.path.join(RESULTS_DIR, "memory_states.png"),
-        show=True,
-    )
+    #memory_bank.visualize(
+    #    qubit=0,
+    #    title="Adaptive IQC – Memory States (Final Snapshot)",
+    #    save_path=os.path.join(RESULTS_DIR, "memory_states.png"),
+    #    show=True,
+    #)
 
 def save_adaptive_plots(trainer, memory_bank, out_dir):
     os.makedirs(out_dir, exist_ok=True)
