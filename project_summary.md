@@ -69,9 +69,9 @@ measurement-free-quantum-classifier/
             train_test_qsvm_amp_encode.py
             __init__.py
         training/
-            sweep_k_fixed_memory_iqc copy.py
             test_fixed_memory_iqc.py
             validate_backends.py
+            sweep_k_fixed_memory_iqc_load_back.py
             test_static_isdo_model.py
             sweep_k_fixed_memory_iqc.py
             test_adaptive_memory_trainer.py
@@ -155,10 +155,10 @@ def main():
     EMBED_DIR = PATHS["embeddings"]
     
     # Shot counts to compare
-    SHOT_LIST = [25, 50, 128, 512, 1024, 2048]
+    SHOT_LIST = [10, 100, 512, 1024, 2048, 4096]
     
     # Subsample for faster evaluation (optional, but recommended for shots > 512)
-    EVAL_SAMPLES = 20
+    EVAL_SAMPLES = 600
     
     print("Loading embeddings...")
     X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
@@ -175,8 +175,13 @@ def main():
     normalizer = Normalizer(norm='l2')
     X_test_norm = normalizer.fit_transform(X_test)
     
+    # Pre-compute test statevectors for QSVM optimization
+    from qiskit.quantum_info import Statevector
+    print(f"Pre-computing {EVAL_SAMPLES} test statevectors...")
+    sv_test_list = [Statevector(x) for x in X_test_norm]
+    
     # Model Paths
-    IQL_PATH = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc", "fixed_memory_iqc.pkl")
+    IQL_PATH = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep", "models", "fixed_memory_iqc_k2.pkl")
     QSVM_PATH = os.path.join(BASE_ROOT, "results", "qsvm", "qsvm_amp_model.dill")
     VQC_PATH = os.path.join(BASE_ROOT, "results", "vqc_amp_simple", "vqc_amp_simple.dill")
     
@@ -241,9 +246,11 @@ def main():
         print(f"  Computing {n_test * n_support} overlaps and sampling {shots} shots...")
         
         for i in range(n_test):
-            sv_test = Statevector(X_test_norm[i])
+            sv_test = sv_test_list[i]
             for j in range(n_support):
                 prob = np.abs(sv_test.data @ sv_support[j].data.conj())**2
+                # Clip to [0, 1] to avoid numerical precision errors in binomial distribution
+                prob = np.clip(float(prob), 0.0, 1.0)
                 # Sample from binomial distribution to simulate shots
                 n0 = np.random.binomial(shots, prob)
                 K[i, j] = n0 / shots
@@ -3606,7 +3613,7 @@ import os
 import json
 import numpy as np
 import time
-
+import joblib
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import Normalizer
 
@@ -3757,106 +3764,6 @@ Saved results to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/re
 ## File: src/quantum/__init__.py
 
 ```py
-
-```
-
-## File: src/training/sweep_k_fixed_memory_iqc copy.py
-
-```py
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score
-import time
-
-from src.utils.load_data import load_data
-from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
-from src.IQL.backends.hardware_native import HardwareNativeBackend
-from src.utils.paths import load_paths
-from src.utils.seed import set_seed
-
-def main():
-    # -------------------------------------------------
-    # Load paths and Set Seed
-    # -------------------------------------------------
-    set_seed()
-    BASE_ROOT, PATHS = load_paths()
-
-    OUT_DIR = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep")
-    os.makedirs(OUT_DIR, exist_ok=True)
-    
-    MODELS_DIR = os.path.join(OUT_DIR, "models")
-    os.makedirs(MODELS_DIR, exist_ok=True)
-
-    # -------------------------------------------------
-    # Load data
-    # -------------------------------------------------
-    X_train, X_test, y_train, y_test = load_data("polar")
-
-    # Quantum-safe normalization (defensive)
-    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
-    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
-
-    # -------------------------------------------------
-    # Sweep Setup
-    # -------------------------------------------------
-    # List of K values to sweep over
-    k_values = [i for i in range(1,20)] 
-    accuracies = []
-
-    print(f"🚀 Starting K sweep for FixedMemoryIQC: {k_values}")
-
-    for k in k_values:
-        print(f"\n--- Training K={k} ---")
-        start_time = time.time()
-        
-        # Initialize and train model
-        model = FixedMemoryIQC(K=k, eta=0.1, backend=HardwareNativeBackend())
-        model.fit(X_train, y_train)
-
-        # Evaluate model
-        y_pred = model.predict(X_test)
-        acc = accuracy_score(y_test, y_pred)
-        accuracies.append(acc)
-
-        train_time = time.time() - start_time
-        print(f"✅ K={k} | Test Accuracy: {acc:.4f} | Time: {train_time:.2f}s")
-
-        # Save model
-        model_name = f"fixed_memory_iqc_k{k}.pkl"
-        model_path = os.path.join(MODELS_DIR, model_name)
-        model.save(model_path)
-        print(f"💾 Saved model to {model_path}")
-
-    # -------------------------------------------------
-    # Plotting
-    # -------------------------------------------------
-    plot_path = os.path.join(OUT_DIR, "k_vs_accuracy.png")
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(k_values, accuracies, marker='o', linestyle='-', color='b', label='Test Accuracy')
-    plt.title("FixedMemoryIQC: K vs Accuracy")
-    plt.xlabel("K (Memory Size)")
-    plt.ylabel("Test Accuracy")
-    plt.xticks(k_values)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend()
-    
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"\n📊 K vs Accuracy plot saved to: {plot_path}")
-
-    # Optional: Save results summary to a text file
-    summary_path = os.path.join(OUT_DIR, "sweep_results.txt")
-    with open(summary_path, "w") as f:
-        f.write("K\tAccuracy\n")
-        for k, acc in zip(k_values, accuracies):
-            f.write(f"{k}\t{acc:.4f}\n")
-    print(f"📝 Sweep results summary saved to: {summary_path}")
-
-if __name__ == "__main__":
-    main()
 
 ```
 
@@ -4056,6 +3963,138 @@ Max |Exact - Transition| = 4.97e-14
 PrimeB sign agreement with Exact: 52.5%
 PrimeB rank correlation with Exact: -0.004
 """
+```
+
+## File: src/training/sweep_k_fixed_memory_iqc_load_back.py
+
+```py
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score
+import time
+
+from src.utils.load_data import load_data
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+
+def main():
+    # -------------------------------------------------
+    # Configuration
+    # -------------------------------------------------
+    USE_EXACT_BACKEND = True  # Set to False to use the saved backend (HardwareNativeBackend)
+    
+    # -------------------------------------------------
+    # Load paths and Set Seed
+    # -------------------------------------------------
+    set_seed()
+    BASE_ROOT, PATHS = load_paths()
+
+    OUT_DIR = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep")
+    MODELS_DIR = os.path.join(OUT_DIR, "models")
+    
+    # -------------------------------------------------
+    # Load data
+    # -------------------------------------------------
+    X_train, X_test, y_train, y_test = load_data("polar")
+
+    # Quantum-safe normalization (defensive)
+    X_train /= np.linalg.norm(X_train, axis=1, keepdims=True)
+    X_test /= np.linalg.norm(X_test, axis=1, keepdims=True)
+
+    # -------------------------------------------------
+    # Evaluation
+    # -------------------------------------------------
+    # Find all saved models
+    if not os.path.exists(MODELS_DIR):
+        print(f"❌ Models directory not found: {MODELS_DIR}")
+        return
+
+    model_files = sorted([f for f in os.listdir(MODELS_DIR) if f.endswith(".pkl")])
+    if not model_files:
+        print(f"❌ No models found in {MODELS_DIR}")
+        return
+
+    k_values = []
+    accuracies = []
+
+    print(f"🚀 Starting evaluation of {len(model_files)} models...")
+    if USE_EXACT_BACKEND:
+        print("⚡ Using ExactBackend for evaluation.")
+    else:
+        print("🔌 Using saved backends (HardwareNativeBackend).")
+
+    for model_name in model_files:
+        # Extract K from filename (e.g., fixed_memory_iqc_k10.pkl)
+        try:
+            k_val = int(model_name.split("_k")[1].split(".")[0])
+        except (IndexError, ValueError):
+            print(f"⚠️ Warning: Could not parse K value from {model_name}, skipping.")
+            continue
+
+        model_path = os.path.join(MODELS_DIR, model_name)
+        
+        # Load model
+        model = FixedMemoryIQC.load(model_path)
+        
+        # Swap backend if requested
+        if USE_EXACT_BACKEND:
+            exact_backend = ExactBackend()
+            model.backend = exact_backend
+            # Crucially, update the individual class states
+            if model.memory_bank:
+                for cs in model.memory_bank.class_states:
+                    cs.backend = exact_backend
+        
+        start_time = time.time()
+        # Evaluate model
+        y_pred = model.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+        
+        eval_time = time.time() - start_time
+        print(f"✅ Loaded K={k_val} | Test Accuracy: {acc:.4f} | Eval Time: {eval_time:.2f}s")
+        
+        k_values.append(k_val)
+        accuracies.append(acc)
+
+    # Sort results by K
+    results = sorted(zip(k_values, accuracies))
+    k_values, accuracies = zip(*results)
+
+    # -------------------------------------------------
+    # Plotting
+    # -------------------------------------------------
+    suffix = "_exact" if USE_EXACT_BACKEND else ""
+    plot_path = os.path.join(OUT_DIR, f"k_vs_accuracy_eval{suffix}.png")
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(k_values, accuracies, marker='o', linestyle='-', color='g', label='Evaluation Accuracy')
+    plt.title(f"FixedMemoryIQC Evaluation: K vs Accuracy {'(Exact Backend)' if USE_EXACT_BACKEND else ''}")
+    plt.xlabel("K (Memory Size)")
+    plt.ylabel("Test Accuracy")
+    plt.xticks(k_values)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend()
+    
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"\n📊 K vs Accuracy plot saved to: {plot_path}")
+
+    # Save results summary
+    summary_path = os.path.join(OUT_DIR, f"eval_results{suffix}.txt")
+    with open(summary_path, "w") as f:
+        f.write("K\tAccuracy\n")
+        for k, acc in zip(k_values, accuracies):
+            f.write(f"{k}\t{acc:.4f}\n")
+    print(f"📝 Evaluation results summary saved to: {summary_path}")
+
+if __name__ == "__main__":
+    main()
+
 ```
 
 ## File: src/training/test_static_isdo_model.py
