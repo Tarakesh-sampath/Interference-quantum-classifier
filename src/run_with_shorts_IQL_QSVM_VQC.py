@@ -27,10 +27,10 @@ def main():
     EMBED_DIR = PATHS["embeddings"]
     
     # Shot counts to compare
-    SHOT_LIST = [25, 50, 128, 512, 1024, 2048]
+    SHOT_LIST = [10, 100, 512, 1024, 2048, 4096]
     
     # Subsample for faster evaluation (optional, but recommended for shots > 512)
-    EVAL_SAMPLES = 30
+    EVAL_SAMPLES = 600
     
     print("Loading embeddings...")
     X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
@@ -118,9 +118,11 @@ def main():
         print(f"  Computing {n_test * n_support} overlaps and sampling {shots} shots...")
         
         for i in range(n_test):
-            sv_test = Statevector(X_test_norm[i])
+            sv_test = sv_test_list[i]
             for j in range(n_support):
                 prob = np.abs(sv_test.data @ sv_support[j].data.conj())**2
+                # Clip to [0, 1] to avoid numerical precision errors in binomial distribution
+                prob = np.clip(float(prob), 0.0, 1.0)
                 # Sample from binomial distribution to simulate shots
                 n0 = np.random.binomial(shots, prob)
                 K[i, j] = n0 / shots
