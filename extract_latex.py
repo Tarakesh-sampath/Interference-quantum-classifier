@@ -70,6 +70,6 @@ def extract_text(tex_path, output_path):
         f.write(content)
 
 if __name__ == "__main__":
-    tex_file = "/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/paper_writeup/Isdo_theory_5/interference_quantum_classifier.tex"
+    tex_file = "/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/paper_writeup/Isdo_theory_8/interference_quantum_classifier.tex"
     txt_file = "/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/interference_quantum_classifier.txt"
     extract_text(tex_file, txt_file)

@@ -1,0 +1,57 @@
+{
+  "config": {
+    "K": 2,
+    "shots": 50,
+    "samples": 600,
+    "model_path": "/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/fixed_memory_iqc_sweep/models/fixed_memory_iqc_k2.pkl"
+  },
+  "metrics": {
+    "accuracy": 0.8816666666666667,
+    "precision": 0.8996539792387543,
+    "recall": 0.8609271523178808,
+    "f1_score": 0.8798646362098139,
+    "classification_report": "              precision    recall  f1-score   support\n\n     Class 0       0.86      0.90      0.88       298\n     Class 1       0.90      0.86      0.88       302\n\n    accuracy                           0.88       600\n   macro avg       0.88      0.88      0.88       600\nweighted avg       0.88      0.88      0.88       600\n"
+  },
+  "confusion_matrix": [
+    [
+      269,
+      29
+    ],
+    [
+      42,
+      260
+    ]
+  ],
+  "correlation_matrix": [
+    [
+      1.0,
+      0.2806490044605175,
+      0.35833822459456427,
+      0.4457411463063847
+    ],
+    [
+      0.2806490044605175,
+      1.0000000000000004,
+      0.3583212525371854,
+      0.5140694618927957
+    ],
+    [
+      0.35833822459456427,
+      0.3583212525371854,
+      1.0000000000000004,
+      0.638707212784788
+    ],
+    [
+      0.4457411463063847,
+      0.5140694618927957,
+      0.638707212784788,
+      1.0
+    ]
+  ],
+  "state_labels": [
+    "Class0_Idx0",
+    "Class0_Idx1",
+    "Class1_Idx2",
+    "Class1_Idx3"
+  ]
+}
