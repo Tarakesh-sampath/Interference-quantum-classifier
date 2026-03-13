@@ -6,8 +6,15 @@ results/embeddings/class_prototypes
 results/frames
 prime_b.py
 research_docs
-paper_writeup
-Documents
+# anything except a .pdf file and .tex file is to be ignored in 
+paper_writeup/*/*
+!paper_writeup/*/*.pdf
+!paper_writeup/*/*.tex
+
+#
+Documents/*
+!Documents/T*
+
 context*
 base_papers
 *_word_part*.txt
