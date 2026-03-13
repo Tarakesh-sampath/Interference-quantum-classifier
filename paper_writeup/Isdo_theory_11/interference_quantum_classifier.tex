@@ -1,0 +1,541 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{amsmath,amssymb}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{cite}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{booktabs}
+\usepackage{float}
+
+% Slightly tighten float/table spacing (global)
+\setlength{\textfloatsep}{6pt}
+\setlength{\floatsep}{6pt}
+\setlength{\intextsep}{6pt}
+\setlength{\abovecaptionskip}{6pt}
+\setlength{\belowcaptionskip}{6pt}
+\renewcommand{\arraystretch}{1.0}
+
+\title{Interference-Based Quantum Classification of Histopathology Images Using Linear State Overlap}
+
+\author{
+\IEEEauthorblockN{
+Tarakeshwaran S\IEEEauthorrefmark{1},
+Srivaishnav S\IEEEauthorrefmark{1},
+Pranesh S\IEEEauthorrefmark{1},
+Dr. Gunasundari S\IEEEauthorrefmark{1},
+}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}
+Department of Computer Science and Engineering\\
+Velammal Engineering College, Chennai, India\\
+tarakeshwaran.sampath@gmail.com\\
+vaishnav90100@gmail.com\\
+praneshjd2004@gmail.com\\
+gunasundari@velammal.edu.in
+}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The efficacy of near-term quantum machine learning (QML) is often limited by two primary hurdles: the high cost of representing complex medical images in quantum states and the significant measurement overhead required for similarity-based inference. This paper introduces a hybrid medical-QML framework in which a convolutional backbone with a compact neck first compresses each 96\,$\times$\,96 lymph-node patch into a low-dimensional feature vector, which is then amplitude-encoded and evaluated by a fixed interference circuit \cite{schuld2017distance,schuld2018book}. We employ a fixed interference-based decision rule that relies on the \emph{sign of the real linear overlap} rather than quadratic fidelity, significantly reducing the measurement shots needed for inference. The learning phase is executed entirely classically through centroid aggregation of training embeddings, which are then used to define static state-preparation unitaries. We evaluate the proposed Interference-Based Quantum Classifier (IQC) on the PatchCamelyon dataset under realistic noise models. Our results demonstrate an accuracy of 88.07\% on the validation subset, proving that high-performance medical classification is achievable with measurement-efficient, NISQ-compatible quantum circuits.
+\end{abstract}
+
+\begin{IEEEkeywords}
+NISQ Devices, Quantum Machine Learning, Quantum Classification, Quantum Interference, Linear Overlap, Hybrid Quantum--Classical Systems, Medical Imaging, Histopathology
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+\subsection{Background and Motivation}
+Despite new quantum primitives, many NISQ classifiers are still constrained by unstable variational training \cite{benedetti2019parameterized,mcclean2018barren} or inference strategies that demand heavy measurement budgets \cite{schuld2019feature,havlicek2019supervised}. These constraints are particularly acute in histopathology, where the high dimensionality of 96\,$\times$\,96 image patches makes direct quantum feature mapping impractical on current hardware \cite{preskill2018nisq}.
+
+Existing QML frameworks frequently rely on iterative parameterized updates that are difficult to scale, or on similarity metrics that necessitate a large measurement budget. In diagnostic imaging, both numerical stability and execution efficiency are paramount for real-world feasibility.
+
+\subsection{Motivation for Interference-Based Classification}
+We address this gap with a hybrid medical-QML architecture. A classical CNN backbone with a compact neck compresses each image into a low-dimensional embedding. The embedding is then amplitude-encoded into a quantum state and processed by a fixed interference circuit. Classification is performed by the sign of the real linear overlap between the test state and a class prototype, requiring a small constant number of shots per inference using one fixed circuit per sample. Learning is entirely classical: class-representative prototype states are constructed by centroid aggregation of embeddings, and the quantum processor is used only for inference.
+
+\subsection{Primary Contributions}
+The key contributions of this research include:
+\begin{itemize}
+    \item A \textbf{hybrid medical-QML pipeline} tailored for lymph node histopathology that overcomes quantum encoding bottlenecks via a modular CNN neck for dimensionality reduction.
+    \item A \textbf{decision primitive based on linear interference}, utilizing $\mathrm{sign}(\mathrm{Re}\langle\phi|\psi\rangle)$ to establish a linear hyperplane classifier effectively in Hilbert space.
+    \item A \textbf{measurement-efficient inference circuit} that operates with a fixed structure and low shot requirements, circumventing the need for iterative variational training.
+    \item A \textbf{classical-to-quantum learning strategy} where class-representative states are aggregated classically, achieving an 88.07\% validation accuracy on the PCam subset.
+\end{itemize}
+
+\subsection{Structure of the Paper}
+The remainder of this paper is organized as follows. Section~II reviews the relevant QML literature. Section~III summarizes existing system paradigms and their limitations. Section~IV presents the proposed interference-based classifier, including the hybrid pipeline, encoding, and decision mechanism. Section~V details the implementation setup, datasets, and evaluation protocol. Section~VI discusses measurement efficiency, noise robustness, limitations, and scalability. Section~VII concludes and outlines future work.
+
+\section{Literature Review}
+
+Quantum machine learning (QML) has progressed from early linear-algebraic subroutines to hardware-focused models tailored to NISQ constraints. We summarize the main approaches and position the linear-interference framework within the remaining gaps.
+
+\subsection{Variational Quantum Methods}
+Variational quantum classifiers (VQCs) represent a prominent class of NISQ-era machine learning models \cite{benedetti2019parameterized,abbas2021power}. Variational quantum classifiers use parameterized circuits whose gate angles are tuned during training to minimize a classical objective. While highly adaptable, these models often encounter training bottlenecks, such as the emergence of barren plateaus where gradients can decay exponentially with qubit count \cite{mcclean2018barren}. Furthermore, the high measurement shot requirement for each optimization iteration can place a significant burden on quantum hardware \cite{benedetti2019parameterized}.
+
+\subsection{Quantum Kernel and Metric-Based Strategies}
+Alternatively, quantum kernel methods bypass variational training by embedding inputs into quantum feature spaces and computing pairwise overlaps \cite{schuld2019feature,havlicek2019supervised}. Often quantified using fidelity $F(\rho, \sigma)$, these similarity values are utilized as kernel entries in classical algorithms like Support Vector Machines (SVMs). However, these approaches remain measurement-intensive, typically scaling with $O(N)$ for a dataset of size $N$ \cite{schuld2019feature,havlicek2019supervised}. Additionally, as a quadratic observable, fidelity may overlook phase-sensitive information crucial for specific decision boundaries.
+Kernel methods shift the burden from training to inference, and the measurement cost of overlap estimation can dominate in practical settings. This motivates exploring alternatives that preserve decision fidelity without requiring extensive pairwise evaluations \cite{schuld2019feature,havlicek2019supervised}.
+
+\subsection{Quantum Geometry and State Discrimination}
+Quantum state discrimination (QSD) frames classification as an identification problem among known quantum states \cite{sergioli2019binary,gonzalez2021classification}. This perspective emphasizes the geometric arrangement of states within Hilbert space over circuit parameterization. Similarly, quantum metric learning seeks to optimize a feature map such that inter-class distances are maximized while intra-class variances are minimized. Our work builds upon these geometric insights by introducing a fixed interference circuit designed to extract a linear overlap signal, offering a more streamlined measuring alternative to full tomography or standard fidelity estimation.
+The geometric view emphasizes discrimination between quantum states rather than explicit parameter tuning, which aligns with approaches that treat the measurement signal itself as the decision statistic. This perspective supports our use of a fixed interference measurement as a classifier primitive \cite{sergioli2019binary,gonzalez2021classification}.
+
+\subsection{Interference-Based Quantum Classification}
+
+Works like the distance-based classifier by Schuld et al. \cite{schuld2017distance,schuld2018book} pioneered the use of the Hadamard test for pattern recognition by calculating distances between vectors, and kernel-based variants compute signed fidelity sums in superposition \cite{blank2020kernel,blank2022compact}. Our work differs operationally in two ways: (i) the decision variable is the \textbf{sign of the real overlap}, not a fidelity or distance estimate, and (ii) learning uses a classical centroid construction, with a \textbf{fixed interference circuit} used only at inference. This yields a measurement-efficient primitive that avoids variational training and reduces circuit executions per sample.
+Interference-based classifiers already demonstrate how overlap signals can encode decision information. Our approach stays within this family but emphasizes a linear overlap test that is aligned with low-shot inference in NISQ settings \cite{schuld2017distance,schuld2018book}.
+
+\begin{table*}[t]
+\centering
+\caption{Comparison of Quantum Classification Paradigms}
+\label{tab:comparison}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Feature & Variational (VQC) & Kernel (QSVM) & Fidelity-Based & \textbf{Linear Interference (IQC)} \\ \midrule
+Decision Basis & Probabilities $P(y|x)$ & High-dim Kernels & Quadratic Overlap $F$ & \textbf{Linear Overlap $\mathrm{Re}\langle \phi|\psi \rangle$} \\
+Learning Mode & In-circuit Optimization & Classical SVM ($O(N^2)$) & Static/Adaptive & \textbf{Static Classical Aggregation} \\
+Quantum Circuit & Parameterized (Trainable) & Fixed (Feature Map) & Fixed (Swap Test) & \textbf{Fixed (Hadamard Test)} \\
+Shot Complexity & High ($O(M \cdot N)$) & Moderate ($O(N)$) & Moderate ($O(1/\epsilon^2)$) & \textbf{Low (constant shots)} \\
+Phase Sensitivity & No & No & No & \textbf{Retains sign of real interference} \\
+Optimization Risk & Barren Plateaus & None (in quantum) & None & \textbf{None} \\ \bottomrule
+\end{tabular}
+\end{table*}
+
+\section{Review of Existing Strategies}
+
+\subsection{Bottlenecks in VQC and Kernel Paradigms}
+Variational models, while versatile, are often hampered by the iterative need for gradient estimation, which remains expensive on current devices. Similarly, kernel-based classifiers, though avoiding variational training, incur significant measurement costs during the inference phase due to repeated pairwise overlap calculations.
+These observations suggest that, beyond expressivity, the practical cost of iterative training and measurement overhead is a key factor in near-term viability. This motivates decision primitives that reduce repeated circuit evaluations at inference time and avoid heavy optimization loops where possible \cite{benedetti2019parameterized,mcclean2018barren}.
+
+\subsection{Sign and Sensitivity Issues in Fidelity Measures}
+Fidelity-centric approaches typically rely on the $F(\phi, \psi) = |\langle \phi | \psi \rangle|^2$ metric \cite{schuld2019feature}. While robust, this quadratic similarity measurement discards the relative sign of interference terms, potentially limiting the expressiveness of the resulting decision boundaries. These collective inefficiencies—optimization instability, high measurement counts, and the loss of signature phase information—provide the motivation for our proposed linear-interference decision rule.
+
+\section{Proposed Work}
+
+\subsection{Overview of Hybrid Pipeline}
+The proposed Interference-Based Quantum Classifier (IQC) follows a modular pipeline: \emph{Input image} $\rightarrow$ \emph{CNN backbone} $\rightarrow$ \emph{compact neck embedding} $\rightarrow$ \emph{quantum state-preparation} $\rightarrow$ \emph{interference-based decision}. The classical module compresses high-dimensional images into an embedding compatible with a small qubit register, while the quantum module performs a fixed interference measurement to obtain a sign-based decision.
+
+Training is executed classically. We first train the CNN backbone and neck on PCam using standard cross-entropy loss to produce discriminative embeddings. After training, the CNN+neck is frozen and used to generate embeddings for all training samples. These embeddings are aggregated into class prototypes (Section~\ref{sec:centroids}), which are compiled into fixed state-preparation unitaries. Quantum hardware is used only for inference: for each test sample we compute its embedding, amplitude-encode it as $|\psi\rangle$, run the fixed interference circuit against the class prototype, and assign a label based on the sign of the interference score estimated over a small constant number of shots.
+
+Fig.~\ref{fig:flowchart} illustrates the complete hybrid classical--quantum pipeline used in the proposed IQC framework.
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=1.02\linewidth]{flowchart_fig1.png}
+    \caption{Flowchart of the hybrid classical-quantum inference pipeline using the Interference-Based Quantum Classifier (IQC).}
+    \label{fig:flowchart}
+\end{figure}
+
+\subsection{Classical Feature Extraction Module}
+The hybrid pipeline described in Section~IV-A begins with a classical CNN backbone that processes 96\,$\times$\,96 RGB lymph node histopathology patches and extracts hierarchical features correlated with malignancy. To make quantum encoding feasible, we insert a compact ``neck'' module that compresses the feature maps into a low-dimensional embedding. The neck acts as a learned projection (analogous to a task-specific PCA), implemented with global average pooling followed by a fully connected layer. The embedding dimension $d$ is chosen to match the available qubit budget via $n = \lceil \log_2 d \rceil$. Fig.~\ref{fig:architecture} provides a visual representation of the backbone and feature neck.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=1.0\linewidth]{{architecture diagram}.png}
+\caption{Hybrid pipeline: image $\rightarrow$ CNN backbone $\rightarrow$ neck (dimensionality reduction) $\rightarrow$ quantum encoding $\rightarrow$ interference-based classifier tail. The quantum stage uses $n$ data qubits and one ancilla for sign-based inference (small constant shots).}
+\label{fig:architecture}
+\end{figure*}
+
+\subsubsection{Module-wise Tensor Shapes}
+The end-to-end data flow is:
+\begin{itemize}
+    \item Input image: $(96, 96, 3)$
+    \item CNN feature maps: $(h, w, c)$ (architecture-dependent)
+    \item Global average pooling: $(c)$
+    \item Neck projection: $(d)$
+    \item Quantum feature vector (normalized and zero-padded if needed): $(2^n)$
+    \item Quantum register: $n$ data qubits + 1 ancilla
+    \item Output: 1 interference score (sign used for label)
+\end{itemize}
+
+This structure explicitly defines the image $\rightarrow$ neck $\rightarrow$ quantum classifier tail, ensuring the quantum stage operates on a manageable number of qubits while preserving discriminative features.
+
+\subsection{Quantum Encoding Module}
+A critical component of the IQC is the explicit mapping of classical feature embeddings into quantum states. We adopt \textbf{amplitude encoding} as the primary feature map $\Phi: \mathbb{R}^d \rightarrow \mathbb{C}^{2^n}$. A classical embedding $\mathbf{x} \in \mathbb{R}^d$ is first normalized and (if needed) zero-padded to length $2^n$, then mapped to an $n$-qubit state via a state-preparation unitary $U(\mathbf{x})$:
+
+\begin{equation}
+|\psi\rangle = \sum_{i=0}^{2^n - 1} x_i |i\rangle,
+\end{equation}
+
+with $n = \lceil \log_2 d \rceil$. Amplitude encoding provides the highest information density, encoding $d$ features into $n$ qubits. In our implementation, amplitude encoding is realized via Qiskit's \texttt{StatePreparation} gate, which constructs a sequence of uniformly controlled rotations to prepare any normalized complex vector $\mathbf{x}$ as a quantum state $|\psi\rangle$. The interference mechanism itself is independent of the specific compilation used.
+
+We consider three distinct encoding techniques tailored for the IQC architecture:
+\begin{enumerate}
+    \item \textbf{Amplitude Encoding}: Assigns the normalized components of a classical vector $\mathbf{x} \in \mathbb{R}^d$ to the amplitudes of a $2^n$-dimensional quantum state. While requiring sophisticated state-preparation circuits, this provides optimal information density and ensures that the linear overlap in Hilbert space reflects the Euclidean dot product in the input space.
+    \item \textbf{Angle-Based Encoding}: Represents features $x_j$ as rotation angles. While hardware-efficient and shallow in depth, this method introduces trigonometric nonlinearities into the inference signal.
+    \item \textbf{Basis-Level Encoding}: Maps classical binary strings to the corresponding computational-basis states of the register. This is computationally simpler but fails to leverage the superposition-driven interference advantage of the IQC.
+\end{enumerate}
+Our experiments primarily utilize amplitude encoding.
+
+\subsubsection{Linear Separability in High-Dimensional Feature Spaces}
+According to Cover's Theorem, a complex pattern classification problem cast in a high-dimensional space nonlinearly is more likely to be linearly separable than in a low-dimensional space \cite{cover1965geometrical}. By mapping data into the $2^n$-dimensional Hilbert space, the IQC leverages this high dimensionality to separate classes using a simple hyperplane.
+
+However, unlike kernel methods that use an implicit feature map, the IQC works with an \textbf{explicit feature map} $\Phi(\mathbf{x})$. The linear overlap $\mathrm{Re}\langle \phi | \psi \rangle$ is computed directly in the state space. The success of the static centroid construction (Section~\ref{sec:centroids}) depends on whether the chosen $\Phi$ places the class distributions in convex regions that can be separated by a single hyperplane.
+
+\subsection{Linear Interference Decision Mechanism}
+The central theoretical contribution of this work is the application of linear interference as the main signal for quantum classification \cite{schuld2017distance,schuld2018book}.
+
+\subsubsection{Linear vs. Quadratic Similarity}
+In conventional schemes, similarity is often expressed through fidelity $F(\phi, \psi) = |\langle \phi | \psi \rangle|^2$. Although fidelity is a natural measure of state similarity, its quadratic form leads to three issues in NISQ inference:
+\begin{enumerate}
+    \item \textbf{Sign Loss}: The absolute square operation $|\cdot|^2$ discards the sign of the real interference term.
+    \item \textbf{Non-linear Decision Boundaries}: Fidelity-induced decision boundaries are second-order surfaces in amplitude space.
+    \item \textbf{Shot Noise Sensitivity}: Estimating fidelity to high precision requires $O(1/\epsilon^2)$ measurement shots.
+\end{enumerate}
+
+In contrast, the linear overlap $\langle \phi | \psi \rangle$ is complex-valued. We focus on its real part:
+\begin{equation}
+s(\psi) = \mathrm{Re}\langle \phi | \psi \rangle.
+\end{equation}
+where $\mathrm{Re}\langle \phi | \psi \rangle$ denotes the real part of the inner product between the prototype state $|\phi\rangle$ and the input state $|\psi\rangle$.\footnote{Notation: $|\psi\rangle$ and $|\phi\rangle$ denote quantum states represented as complex vectors in Hilbert space. The expression $\langle \phi | \psi \rangle$ is their inner product, and $\mathrm{Re}\langle \phi | \psi \rangle$ is its real component. Symbols $a_i$ and $b_i$ denote amplitude coefficients of the corresponding state vectors.}
+
+\subsubsection{Classification Rule and Thresholding}
+The classification process hinges on the sign of the real overlap between a test state $|\psi\rangle$ and the class prototype $|\phi\rangle$. The label prediction $\hat{y}$ is formally defined as:
+\begin{equation}
+\hat{y} = \text{sign}\left( \mathrm{Re}\langle \phi | \psi \rangle \right).
+\end{equation}
+While a zero threshold implies a balanced boundary, a bias term $b \in \mathbb{R}$ can be integrated to account for asymmetric class priors:
+\begin{equation}
+\hat{y} = \begin{cases} +1 & \mathrm{Re}\langle \phi | \psi \rangle + b \geq 0 \\ -1 & \mathrm{Re}\langle \phi | \psi \rangle + b < 0 \end{cases}
+\end{equation}
+
+\subsubsection{Decision Geometry: The Hilbert Space Hyperplane}
+Geometrically, the decision rule $\mathrm{Re}\langle \phi | \psi \rangle = 0$ defines a \textbf{linear hyperplane} that partitions the $2^n$-dimensional Hilbert space into two half-spaces. Fig.~\ref{fig:geometry_comparison} contrasts this linear-interference boundary with the curved, quadratic boundary induced by fidelity-based similarity, and Fig.~\ref{fig:fidelity_geometry} shows the fidelity geometry.
+
+To see this, let $|\psi\rangle$ and $|\phi\rangle$ be represented by their amplitude vectors $\mathbf{c}_\psi, \mathbf{c}_\phi \in \mathbb{C}^{2^n}$. The real part of the inner product can be written as:
+\begin{equation}
+\mathrm{Re}\langle \phi | \psi \rangle = \frac{1}{2}\left( \langle \phi | \psi \rangle + \langle \psi | \phi \rangle \right) = \text{Re}(\mathbf{c}_\phi^\dagger \mathbf{c}_\psi).
+\end{equation}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.8\linewidth]{Interference-Based decision Geometry.png}
+\caption{Comparison of decision boundaries: Linear Interference (left) vs. Fidelity-based Quadratic (right). The interference rule $\mathrm{Re}\langle \phi | \psi \rangle = 0$ induces a linear hyperplane and retains the sign of the real interference term, while fidelity-based rules result in curved boundaries that discard sign information.}
+\label{fig:geometry_comparison}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{{Fidelity based similarity geometry}.png}
+\caption{Detailed geometric profile of fidelity-based similarity measures in Hilbert space, illustrating the nonlinear curvature of the decision surface.}
+\label{fig:fidelity_geometry}
+\end{figure}
+
+\subsubsection{Formal Derivation of the Decision Score}
+Consider the normalized state $|\psi\rangle = \sum_i a_i |i\rangle$ and the representative state $|\phi\rangle = \sum_i b_i |i\rangle$. The interference term $\text{Re}\langle \phi | \psi \rangle$ can be expanded in terms of the real and imaginary parts of the coefficients:
+\begin{equation}
+    \langle \phi | \psi \rangle = \sum_i b_i^* a_i = \sum_i (\text{Re } b_i - i \text{Im } b_i)(\text{Re } a_i + i \text{Im } a_i)
+\end{equation}
+Taking the real part, we obtain:
+\begin{equation}
+    \text{Re}\langle \phi | \psi \rangle = \sum_i (\text{Re } a_i \text{Re } b_i + \text{Im } a_i \text{Im } b_i)
+\end{equation}
+This summation is identical to the Euclidean inner product in $\mathbb{R}^{2 \cdot 2^n}$. The decision boundary $\text{Re}\langle \phi | \psi \rangle = 0$ is therefore the locus of all states in $\mathcal{H}$ that are "mutually orthogonal" under this real-part inner product.
+
+\subsection{Quantum Interference Circuit}
+The accessibility of the linear overlap signal $\mathrm{Re}\langle \phi | \psi \rangle$ is the defining hardware requirement of our framework. Since standard projective measurements $\langle \psi | O | \psi \rangle$ are quadratic in the state amplitudes, we utilize an ancilla-assisted interference circuit. In this framework, one inference corresponds to executing a fixed interference circuit on an input state and assigning a label based on the sign of the estimated overlap.
+
+\subsubsection{Physical Realization via the Hadamard Test}
+As with all gate-based quantum classifiers, state-preparation is treated as a separate cost; the inference complexity discussed here refers exclusively to the decision observable and measurement process.
+
+The real part of the overlap between two quantum states can be directly extracted using the Hadamard test \cite{ekert2002direct}. The circuit requires one additional ancilla qubit and the original register used to store the data states.
+
+The procedure for evaluating $\mathrm{Re}\langle \phi | \psi \rangle$ is as follows \cite{ekert2002direct}:
+\begin{enumerate}
+    \item \textbf{Initialization}: Prepare the ancilla qubit in $|0\rangle$ and the register in a state $|\psi\rangle$.
+    \item \textbf{First Hadamard}: Apply a Hadamard gate $H$ to the ancilla qubit, putting it in the state $\frac{1}{\sqrt{2}}(|0\rangle + |1\rangle)$.
+    \item \textbf{Controlled Operation}: Apply a controlled unitary $U$ that transforms $|\psi\rangle$ toward $|\phi\rangle$. In the most hardware-efficient setup, if we can prepare both $|\psi\rangle$ and $|\phi\rangle$ via unitaries $V_\psi$ and $V_\phi$ from $|0\rangle$, the operation becomes a controlled version of $V_\phi V_\psi^\dagger$.
+    \item \textbf{Second Hadamard}: Apply a second Hadamard gate to the ancilla.
+    \item \textbf{Measurement}: Measure the ancilla qubit in the computational basis.
+\end{enumerate}
+
+The probability of measuring the ancilla in state $|0\rangle$ is:
+\begin{equation}
+P(0) = \frac{1}{2} + \frac{1}{2} \mathrm{Re}\langle \phi | \psi \rangle.
+\end{equation}
+The interference signal (our decision score) is then obtained from the expectation value of the ancilla's $Z$-observable:
+\begin{equation}
+\langle Z_{\text{anc}} \rangle = P(0) - P(1) = \mathrm{Re}\langle \phi | \psi \rangle.
+\end{equation}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=1.0\linewidth]{transition_isdo.png}
+\caption{Circuit diagram of the ISDO-B implementation. The controlled transition unitary $U_{\chi\psi}$ is used to estimate the linear overlap $\mathrm{Re}\langle \phi | \psi \rangle$ by measuring the ancilla qubit expectation value over a small constant number of shots.}
+\label{fig:circuit}
+\end{figure}
+
+\subsubsection{ISDO-B: Hardware-Efficient Linear Interference}
+While the canonical Hadamard test relies on controlled state-preparation for both $|\psi\rangle$ and $|\phi\rangle$, the \textbf{ISDO-B (Interference-Based Static Decision Observable)} variant utilizes a controlled transition unitary $U_{\chi\psi}$ where $U_{\chi\psi}|\psi\rangle = |\phi\rangle$. We assume $U_{\chi\psi}$ is a state-transfer operator acting such that the target subspace is correctly mapped; its action on the orthogonal subspace is unconstrained as it does not contribute to the interference signal.
+
+The circuit follows a modified Hadamard test structure:
+\begin{enumerate}
+    \item Initialize ancilla in $|0\rangle$ and data register in $|0\rangle^{\otimes n}$.
+    \item Prepare test state $|\psi\rangle$ on the data register.
+    \item Apply Hadamard gate to the ancilla: $\frac{1}{\sqrt{2}}(|0\rangle+|1\rangle) \otimes |\psi\rangle$.
+    \item Apply controlled transition unitary $CU_{\chi\psi}$ targeting the data register: $\frac{1}{\sqrt{2}}(|0\rangle |\psi\rangle + |1\rangle |\phi\rangle)$.
+    \item Apply Hadamard gate to the ancilla and measure in the $Z$-basis.
+\end{enumerate}
+The expectation value of the ancilla measurement yields $\langle Z_{\text{anc}} \rangle = \mathrm{Re}\langle \phi | \psi \rangle$. This formulation is particularly advantageous in static regimes where the class prototype $|\phi\rangle$ is precomputed, allowing for the engineering of specialized observables that avoid the overhead of full controlled state-preparation of arbitrary centroids.
+
+\subsubsection{Single-Circuit Inference Cost}
+The IQC uses a single fixed interference circuit per sample and reads out one ancilla qubit to obtain the decision sign. In our experiments, a small constant number of shots is sufficient to stabilize the sign decision, in contrast to fidelity-based methods that require high-precision probability estimation.
+
+\subsection{Class Representative State Construction}
+\label{sec:centroids}
+A pivotal design choice in the IQC framework is the complete decoupling of the learning process from quantum execution. Unlike VQCs, where learning involves an iterative quantum-classical loop, our framework performs all structural learning classically before anything is loaded onto the quantum processor.
+
+\subsubsection{Centroid-Based State Construction}
+The learning objective is to find a normalized quantum state $|\phi^{(c)}\rangle$ that best represents the distribution of training samples belonging to class $c \in \{-1, +1\}$. In this work, we adopt a \textbf{centroid-based aggregation rule}, which is conceptually equivalent to calculating the mean vector in Hilbert space. This centroid-based approach is conceptually similar to classical linear discriminant analysis methods, where class means are used to define approximate linear decision boundaries, albeit implemented directly within the high-dimensional quantum Hilbert space.
+
+Given a subset of training states $\mathcal{S}_c = \{|\psi_i\rangle : y_i = c\}$, where each $|\psi_i\rangle$ is an amplitude-encoded vector in $\mathbb{C}^d$, the unnormalized class-representative vector is:
+\begin{equation}
+| \tilde{\phi}^{(c)} \rangle = \sum_{|\psi_i\rangle \in \mathcal{S}_c} w_i |\psi_i\rangle,
+\end{equation}
+where $w_i$ are importance weights. In the simplest case, where all training samples are considered equally, $w_i = 1/|\mathcal{S}_c|$. The finalized class-representative state is obtained by normalization:
+\begin{equation}
+|\phi^{(c)}\rangle = \frac{| \tilde{\phi}^{(c)} \rangle}{\| | \tilde{\phi}^{(c)} \rangle \|}.
+\end{equation}
+
+Algorithm~\ref{alg:learning} details the classical preprocessing steps required to construct these states.
+
+\begin{algorithm}[ht]
+\caption{Static Learning of Class-Representative States}
+\label{alg:learning}
+\begin{algorithmic}[1]
+\REQUIRE Training dataset $\mathcal{D} = \{(\mathbf{x}_i, y_i)\}_{i=1}^N$
+\STATE Select feature map $\Phi: \mathbb{R}^d \rightarrow \mathbb{C}^{2^n}$ (e.g., Amplitude Encoding)
+\STATE Initialize class accumulators: $\mathbf{v}_+ \leftarrow \mathbf{0}, \mathbf{v}_- \leftarrow \mathbf{0}$
+\FOR{each $(\mathbf{x}_i, y_i) \in \mathcal{D}$}
+    \STATE Compute state vector: $|\psi_i\rangle \leftarrow \Phi(\mathbf{x}_i)$
+    \IF{$y_i = +1$}
+        \STATE $\mathbf{v}_+ \leftarrow \mathbf{v}_+ + |\psi_i\rangle$
+    \ELSE
+        \STATE $\mathbf{v}_- \leftarrow \mathbf{v}_- + |\psi_i\rangle$
+    \ENDIF
+\ENDFOR
+\STATE Normalize: $|\phi^{(+)}\rangle \leftarrow \mathbf{v}_+/\|\mathbf{v}_+\|, |\phi^{(-)}\rangle \leftarrow \mathbf{v}_-/\|\mathbf{v}_-\|$
+\RETURN $|\phi^{(+)}\rangle, |\phi^{(-)}\rangle$
+\end{algorithmic}
+\end{algorithm}
+
+This aggregation is performed entirely in classical memory using the complex amplitude vectors of the data embeddings. For a dataset of size $N$ and a feature space of dimension $d$, this classical step scales as $O(Nd)$, which is significantly faster than the $O(M \cdot N)$ scaling of VQC training (where $M$ is the number of optimization iterations).
+
+\subsubsection{State Selection and Prototype Extraction}
+In some applications, a simple average may not be the most representative summary of a class, especially if the class distribution is multimodal. However, within the scope of this work, we assume a single-mode distribution for each class. The state $|\phi^{(c)}\rangle$ essentially acts as a "prototype" or "centroid" in the quantum feature space. The linear interference score $\text{Re}\langle \phi | \psi \rangle$ can then be interpreted as the projection of the test sample $|\psi\rangle$ onto this class prototype.
+
+\subsubsection{Static Nature and Hybrid Efficiency}
+The resulting states $|\phi^{(+)}\rangle$ and $|\phi^{(-)}\rangle$ are static. Once computed, they are used to derive the control sequences for the interference circuit described earlier. There are no weight updates, no memory growth, and no backpropagation through quantum gates.
+
+By treating the quantum device as a static inference engine rather than a trainable model, we eliminate several pathologies common in hybrid QML:
+\begin{itemize}
+    \item \textbf{Gradient Noise}: Classical aggregation is deterministic and does not suffer from the sampling variance of quantum-derived gradients.
+    \item \textbf{Barren Plateaus}: We avoid the optimization landscape altogether. The "training" is a simple linear aggregation with a guaranteed closed-form solution.
+    \item \textbf{I/O Overhead}: The classical-quantum bridge is traversed only for data loading and the final inference shot, avoiding the high-latency loops of variational training.
+\end{itemize}
+
+\section{Implementation}
+
+\subsection{Data Source: PatchCamelyon}
+For our experiments, we utilize the PatchCamelyon (PCam) dataset, a cornerstone for benchmarking automated detection of lymph node metastases \cite{pcam_veeling2018}. PCam comprises 96\,$\times$\,96 RGB histopathology patches, where each patch is labeled by whether metastatic tumor cells appear in the central 32\,$\times$\,32 pixel region. This binary classification task differentiates between tumor-infiltrated (malignant) and non-tumor (benign) tissue. The dataset's complexity stems from the intricate morphologies of lymphatic structures, where malignant cells disrupt normalized tissue architecture. Representative examples of these tissue types are shown in Fig.~\ref{fig:benign_malignant}.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.45\linewidth]{benign.png}
+    \includegraphics[width=0.45\linewidth]{malignant.png}
+    \caption{Representative lymph node histopathology patches from the PCam dataset. Left: Benign tissue showing normal lymphatic architecture. Right: Malignant tissue exhibiting disrupted cellular morphology and tumor infiltration.}
+    \label{fig:benign_malignant}
+\end{figure}
+
+\subsection{CNN Feature Extraction}
+The CNN backbone and neck are trained classically using cross-entropy loss on PCam. We follow the original PCam train/val/test split provided by the dataset: the backbone is trained on the \texttt{train} split and validated on the \texttt{val} split for model selection. Due to simulation constraints and the compute-intensive nature of statevector inference, the \texttt{val} split (held out from training) is also used for the final downstream evaluation of the quantum stage, with the \texttt{test} split reserved for future hardware validation.
+
+Training uses a lightweight PCamCNN with three convolutional blocks (3$\times$3 conv + batch normalization + ReLU, with max-pooling after the first two blocks), followed by adaptive average pooling and a linear embedding head of dimension $d=32$ with ReLU activation, inspired by prior hybrid quantum imaging pipelines \cite{pcam_01,pcam_03}. A temporary linear classifier is attached during training and discarded after convergence. We use Adam (learning rate $10^{-3}$, weight decay $10^{-4}$), batch size 64, and a ReduceLROnPlateau scheduler (factor 0.5, patience 2) with early stopping (patience 10). Data augmentation is limited to label-preserving transforms: random horizontal/vertical flips and light color jitter, followed by normalization to mean $[0.5,0.5,0.5]$ and std $[0.5,0.5,0.5]$. Validation and embedding extraction use deterministic normalization only.
+
+After training, the CNN+neck (PCamCNN) is frozen and used to produce embeddings for all training samples. These embeddings are then aggregated into class prototypes (Section~\ref{sec:centroids}). The quantum processor is used only at inference.
+
+\subsection{Quantum Encoding Setup}
+In our experiments, $d = 32$ and $n = 5$, so the quantum register consists of 5 data qubits and 1 ancilla qubit (6 total). Each embedding $\mathbf{x} \in \mathbb{R}^{32}$ is amplitude-encoded using Qiskit's \texttt{StatePreparation} unitary, which realizes the mapping $|\psi\rangle = \sum_{i=0}^{31} x_i|i\rangle$. The \texttt{StatePreparation} algorithm prepares arbitrary normalized complex vectors via uniformly controlled rotations \cite{plesch2011quantum}.
+
+\subsubsection{Depth Analysis of Amplitude Encoding}
+While the IQC inference circuit is fixed and short-depth (constant relative to state-preparation), the overall performance is bounded by the cost of preparing the states $|\psi\rangle$ and $|\phi\rangle$. For a $d$-dimensional input vector, amplitude encoding into $n = \log_2 d$ qubits requires a unitary $U$ such that $U|0\rangle^{\otimes n} = \sum_{i=1}^d x_i |i\rangle$.
+
+The standard decomposition of such a unitary using the Plesch-Brukner algorithm results in a circuit with $O(d)$ CNOT gates and $O(d)$ single-qubit rotations. Its asymptotic complexity was rigorously analyzed by Plesch and Brukner \cite{plesch2011quantum}. While this is exponential in the number of qubits $n$, it is linear in the number of features $d$. For NISQ deployment, one often uses approximate state-preparation techniques or hardware-efficient ans\"atze that trade off exact representation for reduced depth. In our simulation, we consider an exact decomposition but point out that the linear interference mechanism of the IQC is still valid independently of the state-preparation technique used, as long as the relative phase information is maintained.
+
+\subsection{Simulation Environment}
+Simulations are carried out via a statevector quantum simulator, with a tailored noise model added to simulate NISQ hardware characteristics. The shot complexity is measured relative to the physical measurement step, not simulation time. All results below were obtained in a single experimental run; multi-seed statistical validation is a planned future step.
+
+All simulations were implemented using a Python-based stack, where Qiskit was used for circuit design and statevector simulation, and PyTorch for the classical CNN modules. Hardware-level training was performed on an NVIDIA GTX 1650 GPU (4GB VRAM) paired with an AMD Ryzen 5 processor and 24GB of RAM. The simulation environment details are as follows:
+\begin{itemize}
+    \item \textbf{Data Handling}: We utilize a balanced subset of 5,000 samples from the PCam validation partition to accommodate statevector memory constraints.
+    \item \textbf{Dimensionality Reduction}: The CNN backbone (PCamCNN) compresses each RGB patch into a $d=32$ embedding, which is L2-normalized prior to quantum conversion.
+    \item \textbf{Quantum Registry}: Embeddings are amplitude-encoded into a 6-qubit system ($n=5$ data qubits and 1 ancilla) via Qiskit's \texttt{StatePreparation} routine.
+    \item \textbf{Noise Simulation}: We apply a depolarizing model ($p \in [0.01, 0.1]$) and thermal relaxation parameters ($T_1, T_2$) to approximate the behavior of superconducting NISQ hardware.
+\end{itemize}
+
+\subsection{Benchmark Models}
+Our IQC (ISDO-B variant) is compared to Fidelity-SWAP, Linear SVM, Logistic Regression, and $k$-NN ($k=3$) on the same 5000-sample subset.
+
+\subsection{Evaluation Metrics}
+Fig.~\ref{fig:accuracy} compares classification accuracy between the proposed IQC, VQC, and fidelity-based methods across different noise levels.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{accuracy_comparison.png}
+\caption{Classification accuracy comparison between the proposed IQC, VQC, and Fidelity-based methods across different noise levels. The IQC maintains stable performance even as noise increases.}
+\label{fig:accuracy}
+\end{figure}
+
+Table~\ref{tab:metrics} presents classification accuracy at a fixed noise level ($p=0.01$).
+
+\begin{table}[ht]
+\centering
+\caption{Classification Performance Comparison: Validation of IQC accuracy against quantum and classical baselines under symmetric depolarizing noise ($p=0.01$).}
+\label{tab:metrics}
+\begin{tabular}{l c}
+\toprule
+Method & Accuracy (\%) \\
+\midrule
+\textbf{IQC (Proposed)} & \textbf{88.07} \\
+Fidelity-SWAP & 87.84 \\
+Linear SVM & 90.53 \\
+Logistic Regression & 90.47 \\
+k-NN ($k=3$) & 92.60 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+To validate shot-complexity behavior, we measured classification accuracy as a function of the number of measurement shots per sample.
+
+\begin{table}[ht]
+\centering
+\caption{Inference Accuracy vs. Measurement Shots: Empirical demonstration of measurement-efficient behavior for IQC relative to fidelity and variational methods.}
+\begin{tabular}{l c c c c}
+\toprule
+Method & 10 Shots & 100 Shots & 1000 Shots & 4000 Shots \\
+\midrule
+IQC (Proposed) & 0.822 & 0.884 & 0.900 & 0.902 \\
+Fidelity-Based & 0.654 & 0.814 & 0.906 & 0.906 \\
+VQC & 0.808 & 0.808 & 0.808 & 0.808 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion}
+
+\subsection{Measurement Efficiency}
+The IQC reaches near-peak performance with small constant shot counts, while fidelity-based and VQC models require substantially more measurements to stabilize classification scores. This reduces the duty cycle pressure on quantum hardware and improves throughput in measurement-limited settings.
+
+The reduction in measurement shots has a direct impact on the energy consumption of the quantum-classical system. In superconducting architectures, each measurement shot involves microwave pulses and high-speed classical digitization, consuming significant power at the control electronics layer. By reducing the number of shots from $10^4$ (typical for fidelity estimation) to a small constant number of shots (often $10^1-10^2$ for IQC sign estimation), we achieve a reduction in the "energy per inference" metric. This potentially positions interference-based QML as a more energy-efficient alternative for data processing in future quantum deployments.
+
+\subsection{Noise Resilience Analysis}
+In typical NISQ environments, circuits are prone to operational errors and decoherence. We evaluate the IQC's performance under two standard noise channels.
+
+\subsubsection{Depolarizing Effects}
+The depolarizing channel is modeled as $\mathcal{E}(\rho) = (1-p)\rho + p\frac{I}{2^{n+1}}$, i.e., the state is replaced by the maximally mixed state with probability $p$ \cite{nielsen2000qcqi}. For our interference circuit, this channel attenuates the overlap signal by a factor of $(1-p)^L$, where $L$ denotes circuit depth:
+\begin{equation}
+    \langle Z_{\text{anc}} \rangle_{\text{noisy}} = (1-p)^L \mathrm{Re}\langle \phi | \psi \rangle.
+\end{equation}
+Notably, since the attenuation factor $(1-p)^L$ remains positive, the \textbf{sign} of the expectation value is preserved, ensuring classification remains accurate provided shot noise is managed.
+
+\subsubsection{Dephasing Errors}
+Dephasing or phase-damping errors, $\mathcal{E}_{ph}(\rho) = (1-p)\rho + p Z\rho Z$, may arise during unitary execution or idle periods \cite{nielsen2000qcqi}. Within the context of the Hadamard test, dephasing on the ancilla adds a stochastic phase $\theta$ to the interference term:
+\begin{equation}
+    P(0) = \frac{1}{2} + \frac{1}{2} \text{Re}(e^{i\theta} \langle \phi | \psi \rangle).
+\end{equation}
+Unbiased dephasing noise typically results in a stable expected decision score; however, systematic phase drifts can shift the decision boundary, suggesting that the ISDO-B variant is more resilient to stochastic depolarization than to fixed calibration errors.
+
+\subsection{Limitations of the Model}
+A fundamental limitation of the current IQC framework is its reliance on a linear decision boundary in Hilbert space. While the Hilbert space dimension $2^n$ is large, separation depends heavily on the quality of the feature map $\Phi(\mathbf{x})$. If the data distribution is not linearly separable under the chosen map, the IQC behaves like a high-bias linear classifier. The dependence of inference stability on the classification margin mirrors that of classical linear classifiers and reflects intrinsic ambiguity near the decision boundary rather than a limitation of the interference-based inference mechanism.
+
+All experiments reported in this work are conducted entirely via classical statevector simulation. No real quantum hardware experiments have been performed. Statevector simulation is noiseless by default; noise is injected via a synthetic depolarizing model. This means the reported results reflect idealized noise assumptions rather than the full complexity of real device errors (e.g., crosstalk, leakage, coherent errors). Furthermore, the current results come from a single experimental trial without multi-seed statistical validation. Real hardware validation on a backend such as IBM Quantum or IonQ, as well as multi-seed runs for mean $\pm$ std reporting, are identified as the most critical directions for strengthening the empirical claims of this work.
+
+\subsection{Scalability Considerations}
+The transition of the IQC from simulation to actual quantum hardware needs to take into account the issue of gate decomposition and ancilla usage. The Hadamard test needs controlled-unitary operations $CU$, which can be expensive in terms of circuit depth $L$ when decomposed into native gates. The interference circuit relies on a single ancilla qubit that must be connected to all qubits in the data register used in the controlled operations; restricted connectivity can introduce SWAP overhead. Readout error rates can be as high as 1--5\% in current NISQ devices, but the IQC's reliance on a single ancilla measurement helps isolate this effect. Readout error mitigation techniques can be applied to the ancilla qubit to improve the precision of the interference score without multi-qubit tomography.
+
+The IQC framework exhibits favorable scaling compared to both classical linear models and variational quantum models. To represent a $d$-dimensional feature vector, the IQC requires $n = \lceil \log_2 d \rceil$ qubits, achieving logarithmic qubit scaling in representation (with linear gate complexity for state-preparation). Once the state is prepared, the interference circuit depth $L$ is a constant or near-constant factor relative to the state-preparation depth. Inference uses a single fixed circuit and a small constant number of shots to stabilize the sign decision. The classical aggregation step scales as $O(Nd)$, which is optimal for linear learning. The reduction in measurement shots also lowers the energy per inference in measurement-limited hardware settings.
+
+\section{Concluding Remarks}
+In this research, we have proposed an interference-driven quantum classifier designed as a static inference primitive for histopathological image assessment. By centering the decision rule on the linear overlap $\mathrm{Re}\langle \phi | \psi \rangle$, we provide a measurement-efficient and noise-resilient alternative to quadratic methods. The decoupling of the learning phase—using classical centroid aggregation—from quantum execution minimizes optimization overhead and enhances feasibility for NISQ deployment. Our experiments on the PCam dataset indicate that the IQC maintains competitive accuracy with significantly reduced resource costs. Using the linear overlap $\mathrm{Re}\langle \phi | \psi \rangle$ rather than quadratic probabilities yields substantially more measurement-efficient inference.
+
+Subsequent research will explore \textbf{adaptive state updates}, investigating whether moving averages or ensemble strategies can further improve class separability while retaining the efficiency of the linear interference core.
+
+\subsection{Extension to Multi-class Classification}
+While this work focuses on binary classification as the core primitive, the IQC framework can be extended to multi-class problems ($K > 2$) using standard decomposition strategies such as \textbf{One-vs-All (OvA)} or \textbf{One-vs-One (OvO)}.
+
+In the OvA approach, for $K$ classes, we learn $K$ static class-representative states $\{|\phi^{(1)}\rangle, |\phi^{(2)}\rangle, \dots, |\phi^{(K)}\rangle\}$. The interference operation is performed between the test state $|\psi\rangle$ and each class prototype. The classification rule is then:
+\begin{equation}
+    \hat{y} = \arg\max_c \mathrm{Re}\langle \phi^{(c)} | \psi \rangle.
+\end{equation}
+The shot complexity for multi-class inference scales as $O(K)$, as we must perform $K$ independent interference measurements. However, each measurement uses a small number of shots, so the overall efficiency remains significantly higher than multi-class VQCs or QSVMs. Future work will investigate more sophisticated ways to load multiple class prototypes into a single quantum memory for parallel interference, potentially reducing the scaling to $O(\log K)$.
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{99}
+
+\bibitem{benedetti2019parameterized}
+Marcello Benedetti, Erika Lloyd, Stefan Sack, and Mattia Fiorentini, ``Parameterized quantum circuits as machine learning models,'' \emph{Quantum Science and Technology}, vol.~4, no.~4, Art. no.~043001, 2019, doi: 10.1088/2058-9565/ab0536.
+
+\bibitem{mcclean2018barren}
+Jarrod R. McClean, Sergio Boixo, Vadim N. Smelyanskiy, Ryan Babbush, and Hartmut Neven, ``Barren plateaus in quantum neural network training landscapes,'' \emph{Nature Communications}, vol.~9, Art. no.~4812, 2018, doi: 10.1038/s41467-018-07090-4.
+
+\bibitem{schuld2019feature}
+Maria Schuld and Nathan Killoran, ``Quantum machine learning in feature Hilbert spaces,'' \emph{Physical Review Letters}, vol.~122, no.~4, Art. no.~040504, 2019, doi: 10.1103/PhysRevLett.122.040504.
+
+\bibitem{schuld2017distance}
+Maria Schuld, Mark Fingerhuth, and Francesco Petruccione, ``Implementing a distance-based classifier with a quantum interference circuit,'' \emph{EPL (Europhysics Letters)}, vol.~119, no.~6, Art. no.~60002, 2017, doi: 10.1209/0295-5075/119/60002.
+
+\bibitem{abbas2021power}
+Amira Abbas, David Sutter, Christa Zoufal, Aur\'elien Lucchi, Alessio Figalli, and Stefan W\"{o}rner, ``The power of quantum neural networks,'' \emph{Nature Computational Science}, vol.~1, no.~6, pp.~403--409, 2021, doi: 10.1038/s43588-021-00084-1.
+
+\bibitem{havlicek2019supervised}
+Vojt\v{e}ch Havl\'{\i}\v{c}ek, Antonio D. C\'orcoles, Kristan Temme, Aram W. Harrow, Abhinav Kandala, Jerry M. Chow, and Jay M. Gambetta, ``Supervised learning with quantum-enhanced feature spaces,'' \emph{Nature}, vol.~567, no.~7747, pp.~209--212, 2019, doi: 10.1038/s41586-019-0980-2.
+
+\bibitem{sergioli2019binary}
+Giuseppe Sergioli, Roberto Giuntini, and H\'ector Freytes, ``A new quantum approach to binary classification,'' \emph{PLoS ONE}, vol.~14, no.~5, e0216224, 2019, doi: 10.1371/journal.pone.0216224.
+
+\bibitem{gonzalez2021classification}
+Fabio A. Gonz\'alez, Vladimir Vargas-Calder\'on, and Herbert Vinck-Posada, ``Classification with quantum measurements,'' arXiv:2004.01227v2, 2021.
+
+\bibitem{blank2020kernel}
+Carsten Blank, Daniel K. Park, June-Koo Kevin Rhee, and Francesco Petruccione, ``Quantum classifier with tailored quantum kernel,'' \emph{npj Quantum Information}, vol.~6, Art. no.~41, 2020, doi: 10.1038/s41534-020-0272-6.
+
+\bibitem{blank2022compact}
+Carsten Blank, Adenilton J. da Silva, Lucas P. de Albuquerque, Francesco Petruccione, and Daniel K. Park, ``Compact quantum kernel-based binary classifier,'' \emph{Quantum Science and Technology}, vol.~7, no.~4, Art. no.~045007, 2022, doi: 10.1088/2058-9565/ac842c.
+
+\bibitem{schuld2018book}
+Maria Schuld and Francesco Petruccione, \emph{Supervised Learning with Quantum Computers}. Springer, 2018.
+
+\bibitem{plesch2011quantum}
+Martin Plesch and \v{C}aslav Brukner, ``Quantum-state preparation with universal gate sets,'' \emph{Physical Review A}, vol.~83, no.~3, Art. no.~032302, 2011, doi: 10.1103/PhysRevA.83.032302.
+
+\bibitem{pcam_01}
+Reek Majumdar, Biswaraj Baral, Bhavika Bhalgamiya, and Taposh Dutta Roy, ``Histopathological cancer detection using hybrid quantum computing,'' arXiv:2302.04633v1, 2023.
+
+\bibitem{pcam_03}
+Nandika Goyal, ``Quantum enhanced histopathologic cancer detection,'' M.S. thesis, Arizona State University, 2024.
+
+\bibitem{pcam_04}
+Raghavendra Selvan and Erik B. Dam, ``Tensor networks for medical image classification,'' in \emph{Proc. Medical Imaging with Deep Learning (MIDL)}, PMLR, vol.~121, pp.~721--731, 2020.
+
+\bibitem{pcam_veeling2018}
+Bastiaan S. Veeling, Jasper Linmans, Jim Winkens, Taco Cohen, and Max Welling, ``Rotation equivariant CNNs for digital pathology,'' in \emph{Medical Image Computing and Computer Assisted Intervention -- MICCAI 2018}, 21st International Conference, Granada, Spain, Proceedings, Part II, pp.~210--218. Springer International Publishing, 2018.
+
+\bibitem{cover1965geometrical}
+Thomas M. Cover, ``Geometrical and statistical properties of systems of linear inequalities with applications in pattern recognition,'' \emph{IEEE Transactions on Electronic Computers}, vol.~EC-14, no.~3, pp.~326--334, 1965, doi: 10.1109/PGEC.1965.264137.
+
+\bibitem{ekert2002direct}
+Artur K. Ekert, Carlos M. Alves, Daniel K. L. Oi, Marcin Horodecki, Pawe{\l} Horodecki, and L. C. Kwek, ``Direct estimations of linear and nonlinear functionals of a quantum state,'' \emph{Physical Review Letters}, vol.~88, no.~21, Art. no.~217901, 2002, doi: 10.1103/PhysRevLett.88.217901.
+
+\bibitem{nielsen2000qcqi}
+Michael A. Nielsen and Isaac L. Chuang, \emph{Quantum Computation and Quantum Information}. Cambridge University Press, 2000.
+
+\bibitem{preskill2018nisq}
+John Preskill, ``Quantum Computing in the NISQ Era and Beyond,'' \emph{Quantum}, vol.~2, p.~79, 2018, doi: 10.22331/q-2018-08-06-79.
+
+\end{thebibliography}
+
+\end{document}
