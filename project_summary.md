@@ -7,6 +7,8 @@ measurement-free-quantum-classifier/
     configs/
         paths.yaml
     src/
+        generate_final_comparison.py
+        quick_accuracy_test.py
         run_with_shorts_IQL_QSVM_VQC.py
         evaluate_capacity_sweep_quantum_vs_knn.py
         evaluate_all_qmls.py
@@ -49,11 +51,8 @@ measurement-free-quantum-classifier/
             baselines/
                 static_isdo_classifier.py
         scripts/
-            test_adaptive_memory_trainer_with_frames.py
-            frames_to_video.py
-        iqc/
+            generate_isdo_matrices.py
         utils/
-            common_backup.py
             common.py
             paths.py
             seed.py
@@ -123,6 +122,163 @@ class_count:
   K_values: [1, 2, 3, 5, 7, 11, 13, 17, 19, 23] 
 ```
 
+## File: src/generate_final_comparison.py
+
+```py
+import os
+import json
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score
+
+from src.utils.paths import load_paths
+from src.utils.seed import set_seed
+from src.utils.load_data import load_data
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+from src.IQL.models.static_isdo_model import StaticISDOModel
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
+
+def main():
+    # ----------------------------
+    # 0. Setup
+    # ----------------------------
+    set_seed(42)
+    BASE_ROOT, PATHS = load_paths()
+    RESULTS_FILE = os.path.join(BASE_ROOT, "results", "final_comparison_results.json")
+    
+    # ----------------------------
+    # 1. Load Data
+    # ----------------------------
+    print("Loading data...")
+    # Xtr, Xte: raw pre-normalized float64 embeddings
+    # ytr_bin, yte_bin: binary labels (0, 1)
+    # ytr_pol, yte_pol: polar labels (-1, 1)
+    Xtr, Xte, ytr_bin, yte_bin, ytr_pol, yte_pol = load_data("all")
+    
+    final_results = {}
+
+    # ----------------------------
+    # 2. Classical Models
+    # ----------------------------
+    print("\nEvaluating Classical Models...")
+    
+    # Logistic Regression
+    lr = LogisticRegression(max_iter=1000, n_jobs=-1)
+    lr.fit(Xtr, ytr_bin)
+    final_results["LogisticRegression"] = accuracy_score(yte_bin, lr.predict(Xte))
+    print(f"  Logistic Regression: {final_results['LogisticRegression']:.4f}")
+
+    # Linear SVM
+    svm = LinearSVC(max_iter=2000)
+    svm.fit(Xtr, ytr_bin)
+    final_results["LinearSVM"] = accuracy_score(yte_bin, svm.predict(Xte))
+    print(f"  Linear SVM:          {final_results['LinearSVM']:.4f}")
+
+    # k-NN (k=5)
+    knn = KNeighborsClassifier(n_neighbors=5, metric="euclidean")
+    knn.fit(Xtr, ytr_bin)
+    final_results["kNN"] = accuracy_score(yte_bin, knn.predict(Xte))
+    print(f"  k-NN (k=5):          {final_results['kNN']:.4f}")
+
+    # ----------------------------
+    # 3. Quantum Models (IQC, K=2)
+    # ----------------------------
+    print("\nEvaluating IQC Models (K=2)...")
+    K_val = 2
+
+    # IQC Exact
+    print("  Evaluating IQC Exact...")
+    iqc_exact = FixedMemoryIQC(K=K_val, backend=ExactBackend())
+    iqc_exact.fit(Xtr, ytr_pol)
+    final_results["IQC_Exact"] = accuracy_score(yte_pol, iqc_exact.predict(Xte))
+    print(f"    IQC Exact Acc:     {final_results['IQC_Exact']:.4f}")
+
+    # IQC Hardware Native (1024 shots)
+    print("Evaluating IQC Hardware Native...")
+    # Using subsample for hardware simulation speed
+    #EVAL_SAMPLES = 500
+    #Xte_sub = Xte[:EVAL_SAMPLES]
+    #yte_pol_sub = yte_pol[:EVAL_SAMPLES]
+    
+    IQL_PATH = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep", "models", "fixed_memory_iqc_k2.pkl")
+    iql_hw = FixedMemoryIQC.load(IQL_PATH)
+    final_results["IQC_HardwareNative"] = accuracy_score(yte_pol, iql_hw.predict(Xte))
+    print(f"    IQC HW Native Acc: {final_results['IQC_HardwareNative']:.4f}")
+
+    # ----------------------------
+    # 4. Static ISDO (K=2)
+    # ----------------------------
+    print("\nEvaluating Static ISDO (K=2)...")
+    isdo = StaticISDOModel(K=K_val)
+    isdo.fit(Xtr, ytr_bin)
+    final_results["ISDO_K"] = accuracy_score(yte_bin, isdo.predict(Xte))
+    print(f"  Static ISDO Acc:     {final_results['ISDO_K']:.4f}")
+
+    # ----------------------------
+    # 5. Save Results
+    # ----------------------------
+    with open(RESULTS_FILE, "w") as f:
+        json.dump(final_results, f, indent=2)
+    
+    print(f"\n✅ Results saved to {RESULTS_FILE}")
+
+if __name__ == "__main__":
+    main()
+
+```
+
+## File: src/quick_accuracy_test.py
+
+```py
+import os
+import numpy as np
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import Normalizer
+
+from src.utils.load_data import load_data
+from src.utils.paths import load_paths
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+from src.IQL.backends.exact import ExactBackend
+from src.IQL.backends.hardware_native import HardwareNativeBackend
+
+NUM_SAMPLES = 30
+SHOTS = 50
+USE_EXACT_BACKEND = False
+
+BASE_ROOT, PATHS = load_paths()
+IQL_MODEL_PATH = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep", "models", "fixed_memory_iqc_k2.pkl")
+
+print(f"Loading {NUM_SAMPLES} test samples from patch chemelion dataset...")
+_, X_test, _, y_test_pol = load_data(y="polar")
+X_test = X_test[:NUM_SAMPLES]
+y_test = y_test_pol[:NUM_SAMPLES]
+
+normalizer = Normalizer(norm='l2')
+X_test_norm = normalizer.fit_transform(X_test)
+
+print(f"Loading model from {IQL_MODEL_PATH}...")
+model = FixedMemoryIQC.load(IQL_MODEL_PATH)
+
+if USE_EXACT_BACKEND:
+    print("Using ExactBackend...")
+    backend = ExactBackend()
+else:
+    print(f"Using HardwareNativeBackend with {SHOTS} shots...")
+    backend = HardwareNativeBackend(shots=SHOTS)
+
+for cs in model.memory_bank.class_states:
+    cs.backend = backend
+
+y_pred = model.predict(X_test_norm)
+accuracy = accuracy_score(y_test, y_pred)
+
+print(f"\nAccuracy: {accuracy:.4f} ({int(accuracy * NUM_SAMPLES)}/{NUM_SAMPLES})")
+
+```
+
 ## File: src/run_with_shorts_IQL_QSVM_VQC.py
 
 ```py
@@ -156,9 +312,10 @@ def main():
     
     # Shot counts to compare
     SHOT_LIST = [10, 100, 512, 1024, 2048, 4096]
+    #SHOT_LIST = [10,25,50,75,100]
     
-    # Subsample for faster evaluation (optional, but recommended for shots > 512)
-    EVAL_SAMPLES = 600
+    # Subsample for faster evaluation (optional, but recommended for shots > 256)
+    EVAL_SAMPLES = 10
     
     print("Loading embeddings...")
     X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
@@ -290,8 +447,79 @@ def main():
     # plt.show() # Commented out for non-interactive run
 
 if __name__ == "__main__":
-    main()
+    #main()
 
+# output 
+    print(
+"""
+Loading embeddings...
+Pre-computing 600 test statevectors...
+Loading Models...
+
+Evaluating with 10 shots...
+ Evaluating IQL...
+  IQL Accuracy: 0.8233
+ Evaluating VQC...
+  VQC Accuracy: 0.8150
+ Evaluating QSVM...
+  Pre-computing 928 support statevectors...
+  Computing 556800 overlaps and sampling 10 shots...
+  QSVM Accuracy: 0.6550
+
+Evaluating with 100 shots...
+ Evaluating IQL...
+  IQL Accuracy: 0.8933
+ Evaluating VQC...
+  VQC Accuracy: 0.8150
+ Evaluating QSVM...
+  Pre-computing 928 support statevectors...
+  Computing 556800 overlaps and sampling 100 shots...
+  QSVM Accuracy: 0.8333
+
+Evaluating with 512 shots...
+ Evaluating IQL...
+  IQL Accuracy: 0.9000
+ Evaluating VQC...
+  VQC Accuracy: 0.8150
+ Evaluating QSVM...
+  Pre-computing 928 support statevectors...
+  Computing 556800 overlaps and sampling 512 shots...
+  QSVM Accuracy: 0.8950
+
+Evaluating with 1024 shots...
+ Evaluating IQL...
+  IQL Accuracy: 0.9067
+ Evaluating VQC...
+  VQC Accuracy: 0.8150
+ Evaluating QSVM...
+  Pre-computing 928 support statevectors...
+  Computing 556800 overlaps and sampling 1024 shots...
+  QSVM Accuracy: 0.9033
+
+Evaluating with 2048 shots...
+ Evaluating IQL...
+  IQL Accuracy: 0.8933
+ Evaluating VQC...
+  VQC Accuracy: 0.8150
+ Evaluating QSVM...
+  Pre-computing 928 support statevectors...
+  Computing 556800 overlaps and sampling 2048 shots...
+  QSVM Accuracy: 0.9083
+
+Evaluating with 4096 shots...
+ Evaluating IQL...
+  IQL Accuracy: 0.9017
+ Evaluating VQC...
+  VQC Accuracy: 0.8150
+ Evaluating QSVM...
+  Pre-computing 928 support statevectors...
+  Computing 556800 overlaps and sampling 4096 shots...
+  QSVM Accuracy: 0.9083
+
+Results saved to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/shots_comparison_results.json
+Plot saved to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/shots_comparison.png
+"""
+)
 ```
 
 ## File: src/evaluate_capacity_sweep_quantum_vs_knn.py
@@ -2674,385 +2902,131 @@ class StaticISDOClassifier:
 
 ```
 
-## File: src/scripts/test_adaptive_memory_trainer_with_frames.py
+## File: src/scripts/generate_isdo_matrices.py
 
 ```py
-# src/training/protocol_adaptive/test_adaptive_memory_trainer.py
-
 import os
+import json
 import numpy as np
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_recall_fscore_support
+from sklearn.preprocessing import Normalizer
 
+# Project components
 from src.utils.paths import load_paths
-from src.utils.load_data import load_data
-
-from src.IQL.learning.class_state import ClassState
-from src.IQL.learning.memory_bank import MemoryBank
-
-from src.IQL.backends.exact import ExactBackend
-from src.IQL.regimes.regime4a_spawn import Regime4ASpawn
-from src.IQL.regimes.regime4b_pruning import Regime4BPruning
-from src.IQL.models.adaptive_memory_model import AdaptiveMemoryModel
-
-import matplotlib.pyplot as plt
-from collections import Counter
-
+from src.utils.seed import set_seed
+from src.IQL.models.fixed_memory_iqc import FixedMemoryIQC
+from src.IQL.backends.hardware_native import HardwareNativeBackend
 
 def main():
-    print("\n🚀 Testing AdaptiveMemoryTrainer (V0)\n")
-    _ , paths = load_paths()
-    # -------------------------------------------------
+    set_seed(42)
+    BASE_ROOT, PATHS = load_paths()
+    EMBED_DIR = PATHS["embeddings"]
+    
+    # Configuration
+    K_val = 2
+    shots = 50
+    EVAL_SAMPLES = 600  # Following the sample size in the example script
+    
+    print(f"Generating ISDO matrices and metrics for K={K_val}, shots={shots}...")
+
     # Load data
-    # -------------------------------------------------
-    X_train, X_test, y_train, y_test = load_data("polar")
-
-    print(f"Train samples: {len(X_train)}")
-    print(f"Test samples : {len(X_test)}")
-
-    # -------------------------------------------------
-    # Bootstrap initial memory (1 per class)
-    # -------------------------------------------------
-    backend = ExactBackend()
-    class_states = []
-
-    for cls in [-1, +1]:
-        idx = np.where(y_train == cls)[0][0]
-        chi = X_train[idx].astype(np.complex128)
-        chi /= np.linalg.norm(chi)
-        class_states.append(
-            ClassState(chi, label=cls, backend=backend)
-        )
-
-    memory_bank = MemoryBank(class_states)
-    print("Initial memory size:", len(memory_bank.class_states))
-
-    # -------------------------------------------------
-    # Regime-4A (spawn)
-    # -------------------------------------------------
-    learner = Regime4ASpawn(
-        memory_bank=memory_bank,
-        eta=0.1,
-        backend=backend,
-        delta_cover=0.2,
-        spawn_cooldown=100,
-        min_polarized_per_class=1,
-    )
-
-    # -------------------------------------------------
-    # Regime-4B (pruning)
-    # -------------------------------------------------
-    pruner = Regime4BPruning(
-        memory_bank=memory_bank,
-        tau_harm=-0.15,
-        min_age=200,
-        min_per_class=1,
-        prune_interval=200,
-    )
-
-    # -------------------------------------------------
-    # Adaptive trainer
-    # -------------------------------------------------
-    trainer = AdaptiveMemoryModel(
-        memory_bank=memory_bank,
-        learner=learner,
-        pruner=pruner,
-        tau_responsible=0.1,
-        beta=0.98,
-        frames_dir=paths["frames_adaptive"],
-    )
-
-    # -------------------------------------------------
-    # Train
-    # -------------------------------------------------
-    trainer.fit(X_train, y_train)
-
-    # -------------------------------------------------
-    # Consolidation phase
-    # -------------------------------------------------
-    trainer.consolidate(
-        X_train,
-        y_train,
-        epochs=5,
-        eta_scale=0.3,
-    )
-
-    # -------------------------------------------------
-    # Evaluate
-    # -------------------------------------------------
-    y_pred = trainer.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-
-    print("\n=== Adaptive Trainer Summary ===")
-    print(trainer.summary())
-
-    print("\n=== Evaluation ===")
-    print(f"Test Accuracy      : {acc:.4f}")
-    print(f"Final Memory Size  : {len(memory_bank.class_states)}")
-
-    print("\n✅ AdaptiveMemoryTrainer test completed.\n")
-
-    # -------------------------------------------------
-    # Save adaptive diagnostics
-    # -------------------------------------------------
-    RESULTS_DIR = paths["frames_adaptive"][:-9]
-    #save_adaptive_plots(trainer, memory_bank, RESULTS_DIR)
-    memory_bank.visualize(qubit=0,title="Adaptive IQC – Memory States (Final Snapshot)",save_path=os.path.join(RESULTS_DIR, "memory_states.png"),show=True,)
-
-def save_adaptive_plots(trainer, memory_bank, out_dir):
-    os.makedirs(out_dir, exist_ok=True)
-
-    # -------------------------------------------------
-    # 1. Memory size over time
-    # -------------------------------------------------
-    plt.figure(figsize=(6, 4))
-    plt.plot(trainer.history["memory_size"])
-    plt.xlabel("Training step")
-    plt.ylabel("Memory size")
-    plt.title("Adaptive Memory Size Over Time")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "memory_size_over_time.png"))
-    plt.close()
-
-    # -------------------------------------------------
-    # 2. Action distribution
-    # -------------------------------------------------
-    action_counts = Counter(trainer.history["action"])
-
-    plt.figure(figsize=(5, 4))
-    plt.bar(action_counts.keys(), action_counts.values())
-    plt.xlabel("Action type")
-    plt.ylabel("Count")
-    plt.title("Adaptive Actions Distribution")
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "action_distribution.png"))
-    plt.close()
-
-    # -------------------------------------------------
-    # 3. Harm EMA distribution
-    # -------------------------------------------------
-    harm = [cs.harm_ema for cs in memory_bank.class_states]
-
-    plt.figure(figsize=(6, 4))
-    plt.hist(harm, bins=20)
-    plt.axvline(x=0.0, linestyle="--")
-    plt.xlabel("Harm EMA")
-    plt.ylabel("Count")
-    plt.title("Harm EMA Distribution (Final)")
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "harm_ema_distribution.png"))
-    plt.close()
-
-    # -------------------------------------------------
-    # 4. Memory age distribution
-    # -------------------------------------------------
-    ages = [cs.age for cs in memory_bank.class_states]
-
-    plt.figure(figsize=(6, 4))
-    plt.hist(ages, bins=15)
-    plt.xlabel("Memory age")
-    plt.ylabel("Count")
-    plt.title("Memory Age Distribution (Final)")
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "memory_age_distribution.png"))
-    plt.close()
-
-    print(f"\n📊 Adaptive plots saved to: {out_dir}")
-
+    print("Loading embeddings...")
+    X = np.load(os.path.join(EMBED_DIR, "val_embeddings.npy"))
+    y = np.load(os.path.join(EMBED_DIR, "val_labels.npy"))
+    test_idx = np.load(os.path.join(EMBED_DIR, "split_test_idx.npy"))
+    
+    X_test = X[test_idx][:EVAL_SAMPLES]
+    y_test = y[test_idx][:EVAL_SAMPLES]
+    
+    # y_test_pol for IQL (uses -1, +1)
+    y_test_pol = np.where(y_test == 0, -1, 1) if np.min(y_test) == 0 else y_test
+    
+    # L2 Normalization for Amplitude Encoding
+    normalizer = Normalizer(norm='l2')
+    X_test_norm = normalizer.fit_transform(X_test)
+    
+    # Model Path (specifically requested)
+    IQL_PATH = os.path.join(BASE_ROOT, "results", "fixed_memory_iqc_sweep", "models", f"fixed_memory_iqc_k{K_val}.pkl")
+    
+    print(f"Loading Model from {IQL_PATH}...")
+    iql_model = FixedMemoryIQC.load(IQL_PATH)
+    
+    # Inject shots into HardwareNativeBackend
+    print(f"Injecting HardwareNativeBackend with {shots} shots...")
+    new_backend = HardwareNativeBackend(shots=shots)
+    for cs in iql_model.memory_bank.class_states:
+        cs.backend = new_backend
+        
+    # Generate Predictions
+    print("Generating predictions...")
+    y_pred = iql_model.predict(X_test_norm)
+    y_pred = np.array(y_pred)
+    
+    # 1. Confusion Matrix
+    cm = confusion_matrix(y_test_pol, y_pred)
+    print("\nConfusion Matrix:")
+    print(cm)
+    
+    # 2. Classification Metrics (Accuracy, Precision, Recall, F1)
+    acc = accuracy_score(y_test_pol, y_pred)
+    # Using 'weighted' average to account for class imbalance if any, though usually binary
+    precision, recall, f1, _ = precision_recall_fscore_support(y_test_pol, y_pred, average='binary')
+    
+    report = classification_report(y_test_pol, y_pred, target_names=["Class 0", "Class 1"])
+    print("\nClassification Report:")
+    print(report)
+    print(f"Accuracy: {acc:.4f}")
+    
+    # 3. Correlation Matrix (State Overlaps)
+    class_states = iql_model.memory_bank.class_states
+    n_states = len(class_states)
+    corr_matrix = np.zeros((n_states, n_states))
+    labels = [f"Class{cs.label}_Idx{i}" for i, cs in enumerate(class_states)]
+    
+    print(f"\nComputing {n_states}x{n_states} correlation matrix (absolute squared overlaps)...")
+    for i in range(n_states):
+        for j in range(n_states):
+            v_i = class_states[i].vector
+            v_j = class_states[j].vector
+            # Absolute squared overlap |<v_i|v_j>|^2
+            overlap = np.abs(np.vdot(v_i, v_j))**2
+            corr_matrix[i, j] = float(overlap)
+            
+    print("Correlation Matrix:")
+    print(corr_matrix)
+    
+    # Save results
+    RESULTS_DIR = os.path.join(BASE_ROOT, "results")
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    RESULTS_FILE = os.path.join(RESULTS_DIR, f"isdo_matrices_k{K_val}_s{shots}.json")
+    
+    results = {
+        "config": {
+            "K": K_val,
+            "shots": shots,
+            "samples": EVAL_SAMPLES,
+            "model_path": IQL_PATH
+        },
+        "metrics": {
+            "accuracy": float(acc),
+            "precision": float(precision),
+            "recall": float(recall),
+            "f1_score": float(f1),
+            "classification_report": report
+        },
+        "confusion_matrix": cm.tolist(),
+        "correlation_matrix": corr_matrix.tolist(),
+        "state_labels": labels
+    }
+    
+    with open(RESULTS_FILE, "w") as f:
+        json.dump(results, f, indent=2)
+        
+    print(f"\nResults successfully saved to {RESULTS_FILE}")
 
 if __name__ == "__main__":
     main()
 
-```
-
-## File: src/scripts/frames_to_video.py
-
-```py
-# scripts/frames_to_video.py
-import cv2
-import glob
-import os
-from src.utils.paths import load_paths
-
-def frames_to_video(
-    frames_dir: str,
-    output_path: str,
-    fps: int = 15,
-    pattern: str = "frame_*.png",
-):
-    """
-    Convert saved Bloch-sphere frames into a video.
-
-    Parameters
-    ----------
-    frames_dir : str
-        Directory containing frame images.
-    output_path : str
-        Path to output video (e.g. .mp4).
-    fps : int
-        Frames per second.
-    pattern : str
-        Glob pattern for frame files.
-    """
-    frame_paths = sorted(glob.glob(os.path.join(frames_dir, pattern)))
-
-    if not frame_paths:
-        raise RuntimeError("No frames found to convert into video.")
-
-    # Read first frame to get dimensions
-    first = cv2.imread(frame_paths[0])
-    if first is None:
-        raise RuntimeError("Failed to read first frame.")
-
-    height, width, _ = first.shape
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    video = cv2.VideoWriter(
-        output_path,
-        cv2.CAP_FFMPEG,
-        fourcc,
-        fps,
-        (width, height),
-    )
-
-    for path in frame_paths:
-        img = cv2.imread(path)
-        if img is None:
-            raise RuntimeError(f"Failed to read frame: {path}")
-        video.write(img)
-
-    video.release()
-    print(f"✅ Video written to: {output_path}")
-
-
-if __name__ == "__main__":
-    _ , path = load_paths()
-    frames_dir = path["frames_adaptive"]
-    output_path = path["video_adaptive"]
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    frames_to_video(
-        frames_dir=frames_dir,
-        output_path=output_path,
-        fps=15,
-    )
-
-```
-
-## File: src/utils/common_backup.py
-
-```py
-import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.circuit.library import StatePreparation, UnitaryGate
-
-
-def load_statevector(vec):
-    """
-    Create a Qiskit StatePreparation gate from a normalized vector.
-    
-    NOTE: This is for CONCEPTUAL/ORACLE model only (Circuit A)
-    For physical implementation, use build_transition_unitary instead
-    """
-    vec = np.asarray(vec, dtype=np.complex128)
-    norm = np.linalg.norm(vec)
-    if not np.isclose(norm, 1.0, atol=1e-12):
-        raise ValueError("Statevector must be normalized")
-    return StatePreparation(vec)
-
-
-def statevector_to_unitary(psi):
-    """
-    Convert a statevector to a unitary operator that creates it from |0...0⟩
-    Uses Gram-Schmidt to complete the unitary matrix.
-    
-    This creates U_psi such that U_psi |0...0⟩ = |psi⟩
-    
-    Used for building transition unitaries in Circuit B'.
-    """
-    psi = np.asarray(psi, dtype=np.complex128)
-    dim = len(psi)
-    
-    # Normalize
-    psi = psi / np.linalg.norm(psi)
-    
-    # Create unitary matrix where first column is psi
-    U = np.zeros((dim, dim), dtype=complex)
-    U[:, 0] = psi
-    
-    # Complete to full unitary using Gram-Schmidt orthogonalization
-    for i in range(1, dim):
-        # Start with standard basis vector
-        v = np.zeros(dim, dtype=complex)
-        v[i] = 1.0
-        
-        # Orthogonalize against all previous columns
-        for j in range(i):
-            v -= np.vdot(U[:, j], v) * U[:, j]
-        
-        # Normalize and store
-        v_norm = np.linalg.norm(v)
-        if v_norm > 1e-10:
-            U[:, i] = v / v_norm
-        else:
-            # Use random vector if degenerate
-            v = np.random.randn(dim) + 1j * np.random.randn(dim)
-            for j in range(i):
-                v -= np.vdot(U[:, j], v) * U[:, j]
-            U[:, i] = v / np.linalg.norm(v)
-    
-    return U
-
-
-def build_transition_unitary(psi, chi):
-    """
-    Build the transition unitary U_chi_psi = U_chi @ U_psi^dagger
-    
-    This is the KEY OPERATION for physically realizable ISDO (Circuit B').
-    
-    This unitary satisfies: U_chi_psi |psi⟩ = |chi⟩
-    
-    Args:
-        psi: Source statevector
-        chi: Target statevector
-    
-    Returns:
-        UnitaryGate that implements the transition
-    """
-    # Build unitaries that prepare each state from |0...0⟩
-    U_psi = statevector_to_unitary(psi)
-    U_chi = statevector_to_unitary(chi)
-    
-    # Transition unitary: U_chi @ U_psi^dagger
-    U_chi_psi = U_chi @ U_psi.conj().T
-    
-    # Verify it works
-    psi_normalized = np.asarray(psi, dtype=np.complex128)
-    psi_normalized = psi_normalized / np.linalg.norm(psi_normalized)
-    chi_normalized = np.asarray(chi, dtype=np.complex128)
-    chi_normalized = chi_normalized / np.linalg.norm(chi_normalized)
-    
-    result = U_chi_psi @ psi_normalized
-    if not np.allclose(result, chi_normalized, atol=1e-10):
-        raise ValueError("Transition unitary does not correctly map |psi⟩ to |chi⟩")
-    
-    return UnitaryGate(U_chi_psi)
-
-
-def build_chi_state(class0_protos, class1_protos):
-    """
-    Build |chi> = sum_k |phi_k^0> - sum_k |phi_k^1>, normalized
-    
-    This constructs the reference state for ISDO classification.
-    """
-    chi = np.zeros_like(class0_protos[0], dtype=np.float64)
-
-    for p in class0_protos:
-        chi += p
-    for p in class1_protos:
-        chi -= p
-
-    chi /= np.linalg.norm(chi)
-    return chi
 ```
 
 ## File: src/utils/common.py

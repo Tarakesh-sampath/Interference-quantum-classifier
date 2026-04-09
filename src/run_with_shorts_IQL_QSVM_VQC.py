@@ -163,9 +163,10 @@ def main():
     # plt.show() # Commented out for non-interactive run
 
 if __name__ == "__main__":
-    main()
+    #main()
 
 # output 
+    print(
 """
 Loading embeddings...
 Pre-computing 600 test statevectors...
@@ -234,3 +235,4 @@ Evaluating with 4096 shots...
 Results saved to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/shots_comparison_results.json
 Plot saved to /home/tarakesh/Work/Repo/measurement-free-quantum-classifier/results/shots_comparison.png
 """
+)
