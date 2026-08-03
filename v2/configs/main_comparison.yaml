@@ -1,0 +1,23 @@
+name: main_comparison
+seeds: [0, 1, 2, 3, 4]
+data:
+  cnn: per_seed          # "per_seed" -> cnn_seed{S}; or an int to pin one CNN
+  fit_split: train
+  fit_samples: 20000     # stratified subsample; null = full split
+  select_split: val
+  select_samples: 5000
+  eval_split: test
+  eval_samples: null     # null = full 32768
+models:
+  - {name: iqc_static}
+  - {name: iqc_fixed, params: {K: 3, eta: 0.1}}
+  - {name: iqc_adaptive}
+  - {name: logreg, params: {C: 1.0}}
+  - {name: linsvm}
+  - {name: knn, params: {k: 5}}
+  - {name: qsvm, fit_samples: 3500, eval_samples: 2000}
+  - {name: vqc, params: {maxiter: 100}, fit_samples: 3500, eval_samples: 2000}
+backend: {kind: exact}
+shots: null
+noise: null
+output_dir: v2/results/main_comparison

@@ -30,4 +30,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src"]
+include = ["src*", "v2*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

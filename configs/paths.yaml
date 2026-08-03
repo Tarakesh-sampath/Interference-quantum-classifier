@@ -1,4 +1,4 @@
-base_root: "/home/tarakesh/Work/Repo/measurement-free-quantum-classifier"
+base_root: "/data/tarakesh/Interference-quantum-classifier"
 
 paths:
   dataset: "dataset"

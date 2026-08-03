@@ -14,9 +14,10 @@ class StaticISDOModel:
     - Fixed interference reference state |chi>
     """
 
-    def __init__(self, K: int):
+    def __init__(self, K: int, seed: int = 42):
         _, PATHS = load_paths()
-        self.proto_dir = PATHS["class_prototypes"]
+        self.seed = seed
+        self.proto_dir = os.path.join(PATHS["class_prototypes"], f"seed{seed}")
         self.K = K
         self.classifier = None
 
@@ -24,16 +25,14 @@ class StaticISDOModel:
         """
         Generate prototypes if they do not already exist.
         """
-        _, PATHS = load_paths()
-        proto_base = PATHS["class_prototypes"]
-        proto_dir = os.path.join(proto_base, f"K{self.K}")
+        proto_dir = os.path.join(self.proto_dir, f"K{self.K}")
         os.makedirs(proto_dir, exist_ok=True)
         generate_prototypes(
             X=X,
             y=y,
             K=self.K,
             output_dir=proto_dir,
-            seed = 42
+            seed=self.seed
         )
     
     def fit(self,X,y):

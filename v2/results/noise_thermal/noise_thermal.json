@@ -1,0 +1,98 @@
+{
+  "experiment": "noise_thermal",
+  "git_commit": "65245b8ec51aa8c0e91c30c773f593d284afec90",
+  "config": {
+    "name": "noise_thermal",
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "data": {
+      "cnn": 0,
+      "fit_split": "train",
+      "fit_samples": 20000,
+      "eval_split": "test",
+      "eval_samples": 500
+    },
+    "models": [
+      {
+        "name": "iqc_static"
+      },
+      {
+        "name": "iqc_fixed",
+        "params": {
+          "K": 3,
+          "eta": 0.1
+        }
+      }
+    ],
+    "backend": {
+      "kind": "circuit"
+    },
+    "shots": [
+      1024
+    ],
+    "noise": {
+      "kind": "thermal",
+      "points": [
+        {
+          "T1_us": 30,
+          "T2_us": 21
+        },
+        {
+          "T1_us": 100,
+          "T2_us": 70
+        },
+        {
+          "T1_us": 200,
+          "T2_us": 140
+        }
+      ],
+      "gate_ns": {
+        "sx": 35,
+        "x": 35,
+        "rz": 0,
+        "cx": 300,
+        "measure": 700
+      }
+    },
+    "output_dir": "/data/tarakesh/Interference-quantum-classifier/v2/results/noise_thermal"
+  },
+  "models": {
+    "iqc_static": {
+      "points": {
+        "T1_30_T2_21": {
+          "acc": 0.492,
+          "n_sub": 500
+        },
+        "T1_100_T2_70": {
+          "acc": 0.674,
+          "n_sub": 500
+        },
+        "T1_200_T2_140": {
+          "acc": 0.838,
+          "n_sub": 500
+        }
+      }
+    },
+    "iqc_fixed": {
+      "points": {
+        "T1_30_T2_21": {
+          "acc": 0.502,
+          "n_sub": 500
+        },
+        "T1_100_T2_70": {
+          "acc": 0.52,
+          "n_sub": 500
+        },
+        "T1_200_T2_140": {
+          "acc": 0.714,
+          "n_sub": 500
+        }
+      }
+    }
+  }
+}

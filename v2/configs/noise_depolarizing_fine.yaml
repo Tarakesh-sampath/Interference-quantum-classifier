@@ -1,0 +1,19 @@
+name: noise_depolarizing_fine
+seeds: [0, 1, 2, 3, 4]
+data:
+  cnn: 0
+  fit_split: train
+  fit_samples: 20000
+  eval_split: test
+  eval_samples: null
+models:
+  - {name: iqc_static}
+  - {name: iqc_fixed, params: {K: 3, eta: 0.1}}
+backend: {kind: sampled}
+shots: [1024]
+noise:
+  kind: depolarizing
+  p: [0.000001, 0.000003, 0.00001, 0.00003, 0.0001, 0.0003, 0.001, 0.003]
+  p2_factor: 10
+# analytic only (no circuit_validation) -> fast; locates the survival threshold
+output_dir: v2/results/noise_depolarizing_fine

@@ -1,0 +1,21 @@
+name: noise_thermal
+seeds: [0, 1, 2, 3, 4]
+data:
+  cnn: 0                  # pinned CNN
+  fit_split: train
+  fit_samples: 20000
+  eval_split: test
+  eval_samples: 500       # circuit-tier only; thermal has no clean analytic form
+models:
+  - {name: iqc_static}
+  - {name: iqc_fixed, params: {K: 3, eta: 0.1}}
+backend: {kind: circuit}
+shots: [1024]
+noise:
+  kind: thermal
+  points:                 # (T1, T2) in microseconds; T2 <= 2*T1
+    - {T1_us: 30, T2_us: 21}
+    - {T1_us: 100, T2_us: 70}
+    - {T1_us: 200, T2_us: 140}
+  gate_ns: {sx: 35, x: 35, rz: 0, cx: 300, measure: 700}
+output_dir: v2/results/noise_thermal

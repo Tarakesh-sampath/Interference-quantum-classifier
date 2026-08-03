@@ -25,12 +25,13 @@ class FixedMemoryIQC:
     4. Freeze memory
     """
 
-    def __init__(self, K: int, eta: float = 0.1, backend=None, alpha: float = 0, beta: float = 1):
+    def __init__(self, K: int, eta: float = 0.1, backend=None, alpha: float = 0, beta: float = 1, seed: int = 42):
         self.K = K
         self.eta = eta
         self.backend = backend or ExactBackend()
         self.alpha = alpha
         self.beta = beta
+        self.seed = seed
 
         self.memory_bank = None
         self.trainer = None
@@ -42,7 +43,7 @@ class FixedMemoryIQC:
         """
         _, PATHS = load_paths()
         proto_base = PATHS["class_prototypes"]
-        proto_dir = os.path.join(proto_base, f"K{self.K}")
+        proto_dir = os.path.join(proto_base, f"seed{self.seed}", f"K{self.K}")
 
         os.makedirs(proto_dir, exist_ok=True)
         y_binary = ensure_binary(y)
@@ -50,7 +51,8 @@ class FixedMemoryIQC:
             X=X,
             y=y_binary,
             K=self.K,
-            output_dir=proto_dir
+            output_dir=proto_dir,
+            seed=self.seed
         )
         return load_prototypes(K=self.K, output_dir=proto_dir)
         

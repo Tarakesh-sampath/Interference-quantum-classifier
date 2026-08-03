@@ -1,0 +1,28 @@
+{
+  "source": "v1_embeddings",
+  "n_train": 3500,
+  "n_eval": 1500,
+  "embeddings_real": true,
+  "embeddings_min": 0.0,
+  "backends": {
+    "max_abs_diff_exact_vs_transition": 1.2126966097980585e-12,
+    "max_abs_diff_exact_vs_sampled": 0.016885808732104213,
+    "high_shots": 8192,
+    "n_circuit": 64,
+    "transition_matches_exact": true,
+    "sampled_matches_exact_within_shotnoise": true
+  },
+  "static_linear_K1": {
+    "K": 1,
+    "agreement": 1.0,
+    "is_linear": true,
+    "chi_is_real": true
+  },
+  "fixed_single_hyperplane_K3": {
+    "K": 3,
+    "n_memories": 6,
+    "agreement": 1.0,
+    "collapses_to_single_hyperplane": true
+  },
+  "GATE_PASSED": true
+}

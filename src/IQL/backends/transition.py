@@ -16,8 +16,10 @@ class TransitionBackend(InterferenceBackend):
     """
     
     @staticmethod
-    def _statevector_to_unitary(vec):
+    def _statevector_to_unitary(vec, rng=None):
         """Build unitary that prepares vec from |0...0⟩"""
+        if rng is None:
+            rng = np.random.default_rng(0)
         vec = np.asarray(vec, dtype=np.complex128)
         vec = vec / np.linalg.norm(vec)
         dim = len(vec)
@@ -37,7 +39,7 @@ class TransitionBackend(InterferenceBackend):
             if v_norm > 1e-10:
                 U[:, i] = v / v_norm
             else:
-                v = np.random.randn(dim) + 1j * np.random.randn(dim)
+                v = rng.standard_normal(dim) + 1j * rng.standard_normal(dim)
                 for j in range(i):
                     v -= np.vdot(U[:, j], v) * U[:, j]
                 U[:, i] = v / np.linalg.norm(v)

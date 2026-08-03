@@ -1,0 +1,15 @@
+name: shot_sweep
+seeds: [0, 1, 2, 3, 4]     # shot-noise seeds
+data:
+  cnn: 0                  # pinned CNN
+  fit_split: train
+  fit_samples: 20000
+  eval_split: test
+  eval_samples: null
+models:
+  - {name: iqc_static}
+  - {name: iqc_fixed, params: {K: 3, eta: 0.1}}
+backend: {kind: sampled}
+shots: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 4096]
+noise: null
+output_dir: v2/results/shot_sweep

@@ -1,0 +1,35 @@
+{
+  "experiment": "adaptive_regimes",
+  "n_seeds": 5,
+  "accuracy": {
+    "iqc_adaptive": {
+      "mean": 0.814349365234375,
+      "std": 0.009313027870975297,
+      "min": 0.79998779296875,
+      "max": 0.825408935546875,
+      "n": 5,
+      "n_memories_mean": 2.8
+    },
+    "iqc_fixed": {
+      "mean": 0.806219482421875,
+      "std": 0.009619414620926667,
+      "min": 0.792388916015625,
+      "max": 0.81610107421875,
+      "n": 5,
+      "n_memories_mean": 6.0
+    },
+    "iqc_regime2": {
+      "mean": 0.817193603515625,
+      "std": 0.02908070123781084,
+      "min": 0.776947021484375,
+      "max": 0.843475341796875,
+      "n": 5,
+      "n_memories_mean": 1.0
+    }
+  },
+  "mcnemar_median_p": {
+    "iqc_adaptive vs iqc_fixed": 3.838977737012019e-09,
+    "iqc_adaptive vs iqc_regime2": 3.045420039911577e-69,
+    "iqc_fixed vs iqc_regime2": 6.853617611622309e-101
+  }
+}

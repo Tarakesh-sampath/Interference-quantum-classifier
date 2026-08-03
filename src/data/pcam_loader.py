@@ -1,7 +1,7 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-def get_pcam_dataset(data_dir='/home/tarakesh/Work/Repo/measurement-free-quantum-classifier/dataset', split='train', download=True, transform=None):
+def get_pcam_dataset(data_dir, split='train', transform=None, download=True):
     """
     Wrapper for torchvision's built-in PCAM dataset.
     Automatically handles downloading and formatting.

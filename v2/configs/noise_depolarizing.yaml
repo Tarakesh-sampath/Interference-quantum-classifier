@@ -1,0 +1,21 @@
+name: noise_depolarizing
+seeds: [0, 1, 2, 3, 4]
+data:
+  cnn: 0                  # pinned CNN
+  fit_split: train
+  fit_samples: 20000
+  eval_split: test
+  eval_samples: null      # analytic tier runs full test; circuit tier subsamples
+models:
+  - {name: iqc_static}
+  - {name: iqc_fixed, params: {K: 3, eta: 0.1}}
+backend: {kind: sampled}
+shots: [32, 256, 1024]
+noise:
+  kind: depolarizing
+  p: [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1]
+  p2_factor: 10           # 2q depolarizing rate = p2_factor * p
+circuit_validation:
+  eval_samples: 500
+  p: [0.001, 0.01, 0.05]
+output_dir: v2/results/noise_depolarizing

@@ -18,13 +18,13 @@ class WinnerTakeAll:
         self,
         memory_bank,
         eta,
-        backend=ExactBackend(),
+        backend=None,
         alpha: float = 0.0,
         beta: float = 1.0,
     ):
         self.memory_bank = memory_bank
         self.eta = eta
-        self.backend = backend
+        self.backend = backend or ExactBackend()
 
         # Scaling factors
         self.alpha_correct = alpha
@@ -128,8 +128,8 @@ class WinnerTakeAll:
             memory_bank=payload["memory_bank"],
             eta=payload["eta"],
             backend=payload["backend"],
-            alpha_correct=payload.get("alpha_correct", 0.0),
-            alpha_wrong=payload.get("alpha_wrong", 1.0),
+            alpha=payload.get("alpha_correct", 0.0),
+            beta=payload.get("alpha_wrong", 1.0),
         )
 
         obj.num_updates = payload["num_updates"]

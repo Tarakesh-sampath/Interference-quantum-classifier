@@ -1,0 +1,16 @@
+name: adaptive_regimes
+seeds: [0, 1, 2, 3, 4]     # stream-order seeds
+data:
+  cnn: 0                  # pinned CNN
+  fit_split: train
+  fit_samples: 20000
+  eval_split: test
+  eval_samples: null
+models:
+  - {name: iqc_regime2, params: {eta: 0.1}}
+  - {name: iqc_fixed, params: {K: 3, eta: 0.1}}          # regime 3a (WTA)
+  - {name: iqc_adaptive, params: {consolidate_epochs: 5}} # regime 4a + 4b
+backend: {kind: exact}
+shots: null
+noise: null
+output_dir: v2/results/adaptive_regimes
